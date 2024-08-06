@@ -13,3 +13,4 @@ build/
 dependency-reduced-pom.xml
 junit*.properties
 target/
+/.eclipse
