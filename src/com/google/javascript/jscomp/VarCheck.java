@@ -502,10 +502,13 @@ class VarCheck implements ScopedCallback, CompilerPass {
       Node origNode = origVar.getNode();
       Node origParent = (origNode == null) ? null : NodeUtil.getDeclaringParent(origNode);
 
+      boolean allowDupe = hasDuplicateDeclarationSuppression(compiler, n, origVar.getNameNode());
+
       switch (parent.getToken()) {
         case CLASS, CONST, LET -> {
-          reportBlockScopedMultipleDeclaration(n, name, origNode);
-          return;
+          if (!allowDupe) {
+            reportBlockScopedMultipleDeclaration(n, name, origNode);
+          }
         }
         default -> {}
       }
@@ -513,8 +516,9 @@ class VarCheck implements ScopedCallback, CompilerPass {
       if (origParent != null) {
         switch (origParent.getToken()) {
           case CLASS, CONST, LET -> {
-            reportBlockScopedMultipleDeclaration(n, name, origNode);
-            return;
+            if (!allowDupe) {
+              reportBlockScopedMultipleDeclaration(n, name, origNode);
+            }
           }
           case FUNCTION -> {
             // Redeclarations of functions in global scope are fairly common, so allow them
@@ -530,12 +534,11 @@ class VarCheck implements ScopedCallback, CompilerPass {
 
       // Don't allow multiple variables to be declared at the top-level scope
       if (s.isGlobal()) {
-        if (origParent.isCatch() && parent.isCatch()) {
+        if (origParent != null && origParent.isCatch() && parent.isCatch()) {
           // Okay, both are 'catch(x)' variables.
           return;
         }
 
-        boolean allowDupe = hasDuplicateDeclarationSuppression(compiler, n, origVar.getNameNode());
         if (VarCheck.isExternNamespace(n)) {
           this.dupDeclNodes.add(parent);
           return;
