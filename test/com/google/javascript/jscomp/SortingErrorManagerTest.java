@@ -23,7 +23,7 @@ import com.google.javascript.jscomp.SortingErrorManager.ErrorWithLevel;
 import com.google.javascript.jscomp.SortingErrorManager.LeveledJSErrorComparator;
 import java.util.ArrayList;
 import java.util.List;
-import org.jspecify.nullness.Nullable;
+import org.jspecify.annotations.Nullable;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.junit.runners.JUnit4;
@@ -143,7 +143,7 @@ public final class SortingErrorManagerTest {
 
           @Override
           public void println(CheckLevel level, JSError error) {
-            if (error.getType().equals(FOO_TYPE)) {
+            if (error.type().equals(FOO_TYPE)) {
               // TODO(b/114762232) This behavior should not be supported, and will become malformed
               // when migrating to a SortingErrorManager with an ErrorReportGenerator.
               this.report(CheckLevel.ERROR, JSError.make(NULL_SOURCE, -1, -1, JOO_TYPE));

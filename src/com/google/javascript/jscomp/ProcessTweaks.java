@@ -28,7 +28,7 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import org.jspecify.nullness.Nullable;
+import org.jspecify.annotations.Nullable;
 
 /**
  * Process goog.tweak primitives. Checks that:
@@ -155,16 +155,12 @@ class ProcessTweaks implements CompilerPass {
     }
 
     Node createDefaultValueNode() {
-      switch (this) {
-        case REGISTER_BOOLEAN:
-          return IR.falseNode();
-        case REGISTER_NUMBER:
-          return IR.number(0);
-        case REGISTER_STRING:
-          return IR.string("");
-        default:
-          throw new IllegalStateException();
-      }
+      return switch (this) {
+        case REGISTER_BOOLEAN -> IR.falseNode();
+        case REGISTER_NUMBER -> IR.number(0);
+        case REGISTER_STRING -> IR.string("");
+        default -> throw new IllegalStateException();
+      };
     }
   }
 
@@ -278,9 +274,7 @@ class ProcessTweaks implements CompilerPass {
       TweakInfo tweakInfo = allTweaks.computeIfAbsent(tweakId, TweakInfo::new);
 
       switch (tweakFunc) {
-        case REGISTER_BOOLEAN:
-        case REGISTER_NUMBER:
-        case REGISTER_STRING:
+        case REGISTER_BOOLEAN, REGISTER_NUMBER, REGISTER_STRING -> {
           // Ensure the ID contains only valid characters.
           if (!ID_MATCHER.matchesAllOf(tweakId)) {
             compiler.report(JSError.make(tweakIdNode, INVALID_TWEAK_ID_ERROR));
@@ -300,12 +294,9 @@ class ProcessTweaks implements CompilerPass {
 
           Node tweakDefaultValueNode = tweakIdNode.getNext().getNext();
           tweakInfo.addRegisterCall(t.getSourceName(), tweakFunc, n, tweakDefaultValueNode);
-          break;
-        case GET_BOOLEAN:
-        case GET_NUMBER:
-        case GET_STRING:
-          tweakInfo.addGetterCall(t.getSourceName(), tweakFunc, n);
-          break;
+        }
+        case GET_BOOLEAN, GET_NUMBER, GET_STRING ->
+            tweakInfo.addGetterCall(t.getSourceName(), tweakFunc, n);
       }
     }
   }

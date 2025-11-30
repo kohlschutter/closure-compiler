@@ -23,6 +23,7 @@ import com.google.javascript.jscomp.deps.ModuleLoader.ResolutionMode;
 import com.google.javascript.jscomp.modules.ModuleMapCreator;
 import com.google.javascript.rhino.Node;
 import java.util.ArrayList;
+import org.junit.Before;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.junit.runners.JUnit4;
@@ -69,6 +70,11 @@ public class CollapsePropertiesAndModuleRewritingTest extends CompilerTestCase {
                 .build());
         factories.maybeAdd(
             PassFactory.builder()
+                .setName(PassNames.ES6_NORMALIZE_CLASSES)
+                .setInternalFactory(Es6NormalizeClasses::new)
+                .build());
+        factories.maybeAdd(
+            PassFactory.builder()
                 .setName(PassNames.COLLAPSE_PROPERTIES)
                 .setRunInFixedPointLoop(true)
                 .setInternalFactory(
@@ -88,6 +94,11 @@ public class CollapsePropertiesAndModuleRewritingTest extends CompilerTestCase {
     };
   }
 
+  @Before
+  public void customSetUp() throws Exception {
+    setGenericNameReplacements(Es6NormalizeClasses.GENERIC_NAME_REPLACEMENTS);
+  }
+
   @Test
   public void testModuleDynamicImport() {
     allowExternsChanges();
@@ -102,29 +113,32 @@ public class CollapsePropertiesAndModuleRewritingTest extends CompilerTestCase {
     inputModules[1].add(
         SourceFile.fromCode(
             "mod1.js",
-            lines(
-                "export class Foo {", //
-                "  static bar() { return 'bar'; }",
-                "}")));
+            """
+            export class Foo {
+              static bar() { return 'bar'; }
+            }
+            """));
     inputModules[1].addDependency(inputModules[0]);
 
     JSChunk[] expectedModules = new JSChunk[] {new JSChunk("entry"), new JSChunk("mod1")};
     expectedModules[0].add(
         SourceFile.fromCode(
             "entry.js",
-            lines(
-                "import('./mod1.js')",
-                "    .then(jscomp$DynamicImportCallback(() => module$mod1 ))",
-                "    .then(ns => console.log(ns.Foo.bar()));")));
+            """
+            import('./mod1.js')
+                .then(jscomp$DynamicImportCallback(() => module$mod1 ))
+                .then(ns => console.log(ns.Foo.bar()));
+            """));
     expectedModules[1].add(
         SourceFile.fromCode(
             "mod1.js",
-            lines(
-                "class Foo$$module$mod1 {",
-                "  static bar() { return 'bar'; }",
-                "}",
-                "/** @const */ var module$mod1={};",
-                "/** @const */ module$mod1.Foo = Foo$$module$mod1;")));
+            """
+            class Foo$$module$mod1 {
+              static bar() { return 'bar'; }
+            }
+            /** @const */ var module$mod1={};
+            /** @const */ module$mod1.Foo = Foo$$module$mod1;
+            """));
     expectedModules[1].addDependency(expectedModules[0]);
 
     test(srcs(inputModules), expected(expectedModules));
@@ -145,9 +159,10 @@ public class CollapsePropertiesAndModuleRewritingTest extends CompilerTestCase {
     inputs.add(
         SourceFile.fromCode(
             "entry.js",
-            lines(
-                "__webpack_require__.e(2).then(",
-                "    function() { return __webpack_require__(2);})")));
+            """
+            __webpack_require__.e(2).then(
+                function() { return __webpack_require__(2);})
+            """));
     inputs.add(SourceFile.fromCode("mod1.js", "module.exports = 123;"));
 
     ArrayList<SourceFile> expected = new ArrayList<>();

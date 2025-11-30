@@ -21,7 +21,7 @@ import static com.google.javascript.jscomp.FunctionTypeBuilder.VAR_ARGS_MUST_BE_
 import static com.google.javascript.jscomp.TypeCheck.WRONG_ARGUMENT_COUNT;
 
 import com.google.javascript.rhino.Node;
-import org.jspecify.nullness.Nullable;
+import org.jspecify.annotations.Nullable;
 import org.junit.Before;
 import org.junit.Test;
 import org.junit.runner.RunWith;
@@ -44,13 +44,6 @@ public final class TypeCheckFunctionCheckTest extends CompilerTestCase {
   @Override
   protected CodingConvention getCodingConvention() {
     return convention;
-  }
-
-  @Override
-  protected int getNumRepetitions() {
-    // TypeCheck will only run once, regardless of what this returns.
-    // We return 1 so that the framework only expects 1 warning.
-    return 1;
   }
 
   @Override
@@ -123,7 +116,12 @@ public final class TypeCheckFunctionCheckTest extends CompilerTestCase {
 
   @Test
   public void testFunctionsWithJsDoc3() {
-    testSame("/** @param {*=} c \n * @param {*=} b */ " + "function foo(a,b,c) {} foo(1);");
+    testSame(
+        """
+        /** @param {*=} c\s
+         * @param {*=} b */
+        function foo(a,b,c) {} foo(1);
+        """);
   }
 
   @Test
@@ -160,17 +158,20 @@ public final class TypeCheckFunctionCheckTest extends CompilerTestCase {
   @Test
   public void testMethodCalls() {
     final String METHOD_DEFS =
-        "/** @constructor */\n"
-            + "function Foo() {}"
-            +
-            // Methods defined in a separate functions and then added via assignment
-            "function twoArg(arg1, arg2) {};"
-            + "Foo.prototype.prototypeMethod = twoArg;"
-            + "Foo.staticMethod = twoArg;"
-            +
-            // Constructor that specifies a return type
-            "/**\n * @constructor\n * @return {Bar}\n */\n"
-            + "function Bar() {}";
+        """
+        /** @constructor */
+        function Foo() {}
+        // Methods defined in a separate functions and then added via assignment
+        function twoArg(arg1, arg2) {};
+        Foo.prototype.prototypeMethod = twoArg;
+        Foo.staticMethod = twoArg;
+        // Constructor that specifies a return type
+        /**
+         * @constructor
+         * @return {Bar}
+         */
+        function Bar() {}
+        """;
 
     // Prototype method with too many arguments.
     testWarning(

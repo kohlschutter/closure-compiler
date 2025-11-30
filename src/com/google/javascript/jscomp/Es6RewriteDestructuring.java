@@ -85,7 +85,7 @@ public final class Es6RewriteDestructuring implements NodeTraversal.Callback, Co
     this.namespace = compiler.getTranspilationNamespace();
 
     switch (this.rewriteMode) {
-      case REWRITE_ALL_OBJECT_PATTERNS:
+      case REWRITE_ALL_OBJECT_PATTERNS -> {
         this.featuresToTriggerRunningPass =
             FeatureSet.BARE_MINIMUM.with(
                 Feature.DEFAULT_PARAMETERS,
@@ -97,18 +97,18 @@ public final class Es6RewriteDestructuring implements NodeTraversal.Callback, Co
         // input language featureSet (such as ES6=>ES5) the pass would be skipped.
         this.featuresToMarkAsRemoved =
             featuresToTriggerRunningPass.with(Feature.OBJECT_PATTERN_REST);
-        break;
-      case REWRITE_OBJECT_REST:
+      }
+      case REWRITE_OBJECT_REST -> {
         // TODO(bradfordcsmith): We shouldn't really need to remove default parameters for this
         // case.
         this.featuresToTriggerRunningPass =
             FeatureSet.BARE_MINIMUM.with(Feature.OBJECT_PATTERN_REST);
         this.featuresToMarkAsRemoved = this.featuresToTriggerRunningPass;
-        break;
-      default:
-        throw new AssertionError(
-            "Es6RewriteDestructuring cannot handle ObjectDestructuringRewriteMode "
-                + this.rewriteMode);
+      }
+      default ->
+          throw new AssertionError(
+              "Es6RewriteDestructuring cannot handle ObjectDestructuringRewriteMode "
+                  + this.rewriteMode);
     }
   }
 
@@ -160,30 +160,21 @@ public final class Es6RewriteDestructuring implements NodeTraversal.Callback, Co
       return scriptFeatures.containsAtLeastOneOf(featuresToTriggerRunningPass);
     }
     switch (n.getToken()) {
-      case FUNCTION:
-        ensureArrowFunctionsHaveBlockBodies(t, n);
-        break;
-      case PARAM_LIST:
-        pullDestructuringOutOfParams(n, parent);
-        break;
-      case ARRAY_PATTERN:
-      case OBJECT_PATTERN:
-        {
-          boolean hasRest = n.isObjectPattern() && n.hasChildren() && n.getLastChild().isRest();
-          if (!this.patternNestingStack.isEmpty() && hasRest) {
-            for (PatternNestingLevel level : patternNestingStack) {
-              if (level.hasNestedObjectRest) {
-                break;
-              }
-              level.hasNestedObjectRest = true;
+      case PARAM_LIST -> pullDestructuringOutOfParams(n, parent);
+      case ARRAY_PATTERN, OBJECT_PATTERN -> {
+        boolean hasRest = n.isObjectPattern() && n.hasChildren() && n.getLastChild().isRest();
+        if (!this.patternNestingStack.isEmpty() && hasRest) {
+          for (PatternNestingLevel level : patternNestingStack) {
+            if (level.hasNestedObjectRest) {
+              break;
             }
-            this.patternNestingStack.peekLast().hasNestedObjectRest = true;
+            level.hasNestedObjectRest = true;
           }
-          this.patternNestingStack.addLast(new PatternNestingLevel(n, hasRest));
-          break;
+          this.patternNestingStack.peekLast().hasNestedObjectRest = true;
         }
-      default:
-        break;
+        this.patternNestingStack.addLast(new PatternNestingLevel(n, hasRest));
+      }
+      default -> {}
     }
     return true;
   }
@@ -191,31 +182,13 @@ public final class Es6RewriteDestructuring implements NodeTraversal.Callback, Co
   @Override
   public void visit(NodeTraversal t, Node n, Node parent) {
     switch (n.getToken()) {
-      case ARRAY_PATTERN:
-      case OBJECT_PATTERN:
+      case ARRAY_PATTERN, OBJECT_PATTERN -> {
         visitPattern(t, n);
         if (n == this.patternNestingStack.getLast().pattern) {
           this.patternNestingStack.removeLast();
         }
-        break;
-      default:
-        break;
-    }
-  }
-
-  /**
-   * If the function is an arrow function, wrap the body in a block if it is not already a block.
-   */
-  // TODO(bradfordcsmith): This should be separated from this pass.
-  private void ensureArrowFunctionsHaveBlockBodies(NodeTraversal t, Node function) {
-    Node body = function.getLastChild();
-    if (!body.isBlock()) {
-      // TODO(b/197349249): When all instances of this pass run post normalization, then we can be
-      // sure that any function here has a block and this can be replaced with an assertion.
-      body.detach();
-      Node replacement = IR.block(IR.returnNode(body)).srcrefTreeIfMissing(body);
-      function.addChildToBack(replacement);
-      t.reportCodeChange();
+      }
+      default -> {}
     }
   }
 
@@ -406,11 +379,7 @@ public final class Es6RewriteDestructuring implements NodeTraversal.Callback, Co
   private Node createTempVarNameNode(String name, AstFactory.Type type) {
     // NOTE: This does not really create a constant node as this pass runs before normalization. See
     // b/322009741.
-    Node ret = astFactory.createConstantName(name, type);
-    // TODO(b/197349249): When this pass moves post normalization, stop explictly marking these
-    // names as const, as createConstantName will automatically do that.
-    ret.putBooleanProp(Node.IS_CONSTANT_NAME, true);
-    return ret;
+    return astFactory.createConstantName(name, type);
   }
 
   /** Creates a new unique name to use for a pattern we need to rewrite. */
@@ -422,7 +391,7 @@ public final class Es6RewriteDestructuring implements NodeTraversal.Callback, Co
     Node parent = pattern.getParent();
 
     switch (parent.getToken()) {
-      case DESTRUCTURING_LHS:
+      case DESTRUCTURING_LHS -> {
         {
           Node declaration = parent.getParent();
           Node declarationParent = declaration.getParent();
@@ -434,37 +403,21 @@ public final class Es6RewriteDestructuring implements NodeTraversal.Callback, Co
             replacePattern(t, pattern, pattern.getNext(), declaration, declaration);
           }
         }
-        break;
-
-      case ASSIGN:
+      }
+      case ASSIGN -> {
         if (parent.getParent().isExprResult()) {
           replacePattern(t, pattern, pattern.getNext(), parent, parent.getParent());
         } else {
           wrapAssignOrDestructuringInCallToArrow(t, parent);
         }
-        break;
-
-      case OBJECT_REST:
-      case ITER_REST:
-      case STRING_KEY:
-      case ARRAY_PATTERN:
-      case DEFAULT_VALUE:
-      case COMPUTED_PROP:
+      }
+      case OBJECT_REST, ITER_REST, STRING_KEY, ARRAY_PATTERN, DEFAULT_VALUE, COMPUTED_PROP -> {
         // Nested pattern; do nothing. We will visit it after rewriting the parent.
-        break;
-
-      case FOR_OF:
-      case FOR_IN:
-      case FOR_AWAIT_OF:
-        visitDestructuringPatternInEnhancedForWithOuterVars(pattern);
-        break;
-
-      case CATCH:
-        visitDestructuringPatternInCatch(t, pattern);
-        break;
-
-      default:
-        throw new IllegalStateException("unexpected parent");
+      }
+      case FOR_OF, FOR_IN, FOR_AWAIT_OF ->
+          visitDestructuringPatternInEnhancedForWithOuterVars(pattern);
+      case CATCH -> visitDestructuringPatternInCatch(t, pattern);
+      default -> throw new IllegalStateException("unexpected parent");
     }
   }
 
@@ -478,14 +431,9 @@ public final class Es6RewriteDestructuring implements NodeTraversal.Callback, Co
       NodeTraversal t, Node pattern, Node rhs, Node parent, Node nodeToDetach) {
     checkArgument(NodeUtil.isStatement(nodeToDetach), nodeToDetach);
     switch (pattern.getToken()) {
-      case ARRAY_PATTERN:
-        replaceArrayPattern(t, pattern, rhs, parent, nodeToDetach);
-        break;
-      case OBJECT_PATTERN:
-        replaceObjectPattern(t, pattern, rhs, parent, nodeToDetach);
-        break;
-      default:
-        throw new IllegalStateException("unexpected");
+      case ARRAY_PATTERN -> replaceArrayPattern(t, pattern, rhs, parent, nodeToDetach);
+      case OBJECT_PATTERN -> replaceObjectPattern(t, pattern, rhs, parent, nodeToDetach);
+      default -> throw new IllegalStateException("unexpected");
     }
   }
 
@@ -692,25 +640,19 @@ public final class Es6RewriteDestructuring implements NodeTraversal.Callback, Co
   }
 
   private Node deletionNodeForRestProperty(Node restTempVarNameNode, Node property) {
-    final Node get;
-    switch (property.getToken()) {
-      case STRING_KEY:
-        get =
-            property.isQuotedStringKey()
-                ? astFactory.createGetElem(
-                    restTempVarNameNode, astFactory.createString(property.getString()))
-                : astFactory.createGetPropWithUnknownType(
-                    restTempVarNameNode, property.getString());
-        break;
-
-      case NAME:
-        get = astFactory.createGetElem(restTempVarNameNode, property);
-        break;
-
-      default:
-        throw new IllegalStateException(
-            "Unexpected property to delete node: " + property.toStringTree());
-    }
+    final Node get =
+        switch (property.getToken()) {
+          case STRING_KEY ->
+              property.isQuotedStringKey()
+                  ? astFactory.createGetElem(
+                      restTempVarNameNode, astFactory.createString(property.getString()))
+                  : astFactory.createGetPropWithUnknownType(
+                      restTempVarNameNode, property.getString());
+          case NAME -> astFactory.createGetElem(restTempVarNameNode, property);
+          default ->
+              throw new IllegalStateException(
+                  "Unexpected property to delete node: " + property.toStringTree());
+        };
 
     return astFactory.createDelProp(get);
   }
@@ -947,7 +889,6 @@ public final class Es6RewriteDestructuring implements NodeTraversal.Callback, Co
     }
 
     this.compiler.reportChangeToEnclosingScope(insertionPoint);
-    NodeUtil.markNewScopesChanged(insertionPoint, compiler);
   }
 
   /** for (const [a, b, c] of arr) */

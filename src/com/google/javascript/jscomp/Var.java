@@ -20,7 +20,7 @@ package com.google.javascript.jscomp;
 import com.google.javascript.rhino.Node;
 import com.google.javascript.rhino.StaticRef;
 import com.google.javascript.rhino.StaticSlot;
-import org.jspecify.nullness.Nullable;
+import org.jspecify.annotations.Nullable;
 
 /**
  * Used by {@code Scope} to store information about variables.
@@ -40,12 +40,8 @@ public class Var extends AbstractVar<Scope, Var> implements StaticSlot, StaticRe
     super(name, nameNode, scope, index, input, implicitGoogNamespaceDefinition);
     if (nameNode != null) {
       switch (nameNode.getToken()) {
-        case MODULE_BODY:
-        case NAME:
-        case IMPORT_STAR:
-          break;
-        default:
-          throw new IllegalArgumentException("Invalid name node " + nameNode);
+        case MODULE_BODY, NAME, IMPORT_STAR -> {}
+        default -> throw new IllegalArgumentException("Invalid name node " + nameNode);
       }
     }
   }

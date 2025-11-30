@@ -19,7 +19,6 @@ package com.google.javascript.jscomp;
 import static com.google.common.base.Preconditions.checkState;
 import static java.nio.charset.StandardCharsets.UTF_8;
 
-import com.google.common.annotations.GwtIncompatible;
 import com.google.common.base.Ascii;
 import com.google.common.base.Joiner;
 import com.google.common.base.Splitter;
@@ -37,6 +36,7 @@ import com.google.javascript.jscomp.CompilerOptions.ExtractPrototypeMemberDeclar
 import com.google.javascript.jscomp.CompilerOptions.InstrumentOption;
 import com.google.javascript.jscomp.CompilerOptions.IsolationMode;
 import com.google.javascript.jscomp.CompilerOptions.LanguageMode;
+import com.google.javascript.jscomp.CompilerOptions.SegmentOfCompilationToRun;
 import com.google.javascript.jscomp.DependencyOptions.DependencyMode;
 import com.google.javascript.jscomp.SourceMap.LocationMapping;
 import com.google.javascript.jscomp.deps.ClosureBundler;
@@ -80,7 +80,7 @@ import java.util.logging.Level;
 import java.util.logging.Logger;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
-import org.jspecify.nullness.Nullable;
+import org.jspecify.annotations.Nullable;
 import org.kohsuke.args4j.Argument;
 import org.kohsuke.args4j.CmdLineException;
 import org.kohsuke.args4j.CmdLineParser;
@@ -130,7 +130,6 @@ import org.kohsuke.args4j.spi.StringOptionHandler;
  *
  * This class is totally not thread-safe.
  */
-@GwtIncompatible("Unnecessary")
 public class CommandLineRunner extends AbstractCommandLineRunner<Compiler, CompilerOptions> {
 
   public static final String OUTPUT_MARKER = AbstractCommandLineRunner.OUTPUT_MARKER;
@@ -260,43 +259,24 @@ public class CommandLineRunner extends AbstractCommandLineRunner<Compiler, Compi
                 + "modules.")
     private List<String> chunk = new ArrayList<>();
 
-    // TODO(bradfordcsmith): deprecate and remove this in favor of --restore_stage1_from_file
     @Option(
-        name = "--continue-saved-compilation",
-        usage = "Filename where a stage 1 compilation state was previously saved.",
+        name = "--filename_to_save_to",
+        usage = "Filename to save state so that the compilation can be resumed later.",
         hidden = true)
-    private @Nullable String continueSavedCompilationFile = null;
+    private @Nullable String filenameToSaveTo = null;
 
     @Option(
-        name = "--restore_stage1_from_file",
-        usage = "Filename where a stage 1 compilation state was previously saved.",
+        name = "--filename_to_restore_from",
+        usage = "Filename where a compilation state was previously saved.",
         hidden = true)
-    private @Nullable String restoreStage1FromFile = null;
+    private @Nullable String filenameToRestoreFrom = null;
 
     @Option(
-        name = "--restore_stage2_from_file",
-        usage = "Filename where a stage 2 compilation state was previously saved.",
+        name = "--segment_of_compilation_to_run",
+        usage = "Which segment of the compilation to run.",
         hidden = true)
-    private @Nullable String restoreStage2FromFile = null;
-
-    // TODO(bradfordcsmith): deprecate and remove this in favor of --save_stage1_to_file
-    @Option(
-        name = "--save-after-checks",
-        usage = "Filename to save stage 1 state so that the compilation can be resumed later.",
-        hidden = true)
-    private @Nullable String saveAfterChecksFile = null;
-
-    @Option(
-        name = "--save_stage1_to_file",
-        usage = "Filename to save stage 1 state so that the compilation can be resumed later.",
-        hidden = true)
-    private @Nullable String saveStage1ToFile = null;
-
-    @Option(
-        name = "--save_stage2_to_file",
-        usage = "Filename to save stage 2 state so that the compilation can be resumed later.",
-        hidden = true)
-    private @Nullable String saveStage2ToFile = null;
+    private @Nullable SegmentOfCompilationToRun segmentOfCompilationToRun =
+        SegmentOfCompilationToRun.ENTIRE_COMPILATION;
 
     @Option(
         name = "--variable_renaming_report",
@@ -361,9 +341,11 @@ public class CommandLineRunner extends AbstractCommandLineRunner<Compiler, Compi
     @Option(
         name = "--isolation_mode",
         usage =
-            "If set to IIFE the compiler output will follow the form:\n"
-                + "  (function(){%output%}).call(this);\n"
-                + "Options: NONE, IIFE")
+            """
+            If set to IIFE the compiler output will follow the form:
+              (function(){%output%}).call(this);
+            Options: NONE, IIFE\
+            """)
     private IsolationMode isolationMode = IsolationMode.NONE;
 
     @Option(
@@ -511,6 +493,7 @@ public class CommandLineRunner extends AbstractCommandLineRunner<Compiler, Compi
                 + "BUNDLE, "
                 + "WHITESPACE_ONLY, "
                 + "SIMPLE (default), "
+                + "TRANSPILE_ONLY,"
                 + "ADVANCED")
     private String compilationLevel = "SIMPLE";
 
@@ -630,12 +613,6 @@ public class CommandLineRunner extends AbstractCommandLineRunner<Compiler, Compi
 
     @Option(name = "--polymer_version", usage = "Which version of Polymer is being used (1 or 2).")
     private @Nullable Integer polymerVersion = null;
-
-    @Option(
-        name = "--polymer_export_policy",
-        usage = "Deprecated, has no effect and usages should be removed.")
-    @SuppressWarnings("unused")
-    private String polymerExportPolicy = PolymerExportPolicy.LEGACY.name();
 
     @Option(
         name = "--chrome_pass",
@@ -897,11 +874,13 @@ public class CommandLineRunner extends AbstractCommandLineRunner<Compiler, Compi
     @Option(
         name = "--instrument_for_coverage_option",
         usage =
-            "Enable code instrumentation to perform code coverage analysis. Options are:\n"
-                + " 1. NONE (default)\n"
-                + " 2. LINE - Instrument code by line.\n"
-                + " 3. BRANCH - Instrument code by branch.\n"
-                + " 4. PRODUCTION - Function Instrumentation on compiled JS code.\n")
+            """
+            Enable code instrumentation to perform code coverage analysis. Options are:
+             1. NONE (default)
+             2. LINE - Instrument code by line.
+             3. BRANCH - Instrument code by branch.
+             4. PRODUCTION - Function Instrumentation on compiled JS code.
+            """)
     private String instrumentForCoverageOption = "NONE";
 
     @Option(
@@ -1156,10 +1135,9 @@ public class CommandLineRunner extends AbstractCommandLineRunner<Compiler, Compi
                 stringWriter,
                 null,
                 (optionHandler) -> {
-                  if (optionHandler.option instanceof NamedOptionDef) {
+                  if (optionHandler.option instanceof NamedOptionDef namedOptionDef) {
                     return !optionHandler.option.hidden()
-                        && optionName.equals(
-                            ((NamedOptionDef) optionHandler.option).name().replaceFirst("^--", ""));
+                        && optionName.equals(namedOptionDef.name().replaceFirst("^--", ""));
                   }
                   return false;
                 });
@@ -1187,10 +1165,9 @@ public class CommandLineRunner extends AbstractCommandLineRunner<Compiler, Compi
               outputStream,
               null,
               (optionHandler) -> {
-                if (optionHandler.option instanceof NamedOptionDef) {
+                if (optionHandler.option instanceof NamedOptionDef namedOptionDef) {
                   return !optionHandler.option.hidden()
-                      && options.contains(
-                          ((NamedOptionDef) optionHandler.option).name().replaceFirst("^--", ""));
+                      && options.contains(namedOptionDef.name().replaceFirst("^--", ""));
                 }
                 return false;
               });
@@ -1470,15 +1447,9 @@ public class CommandLineRunner extends AbstractCommandLineRunner<Compiler, Compi
 
     private void applyToOptions(CompilerOptions options) {
       switch (this) {
-        case PRETTY_PRINT:
-          options.setPrettyPrint(true);
-          break;
-        case PRINT_INPUT_DELIMITER:
-          options.printInputDelimiter = true;
-          break;
-        case SINGLE_QUOTES:
-          options.setPreferSingleQuotes(true);
-          break;
+        case PRETTY_PRINT -> options.setPrettyPrint(true);
+        case PRINT_INPUT_DELIMITER -> options.printInputDelimiter = true;
+        case SINGLE_QUOTES -> options.setPreferSingleQuotes(true);
       }
     }
   }
@@ -1798,37 +1769,28 @@ public class CommandLineRunner extends AbstractCommandLineRunner<Compiler, Compi
           .setJsonStreamMode(flags.jsonStreamMode)
           .setErrorFormat(flags.errorFormat);
 
-      String stage1RestoreFile = flags.restoreStage1FromFile;
-      if (stage1RestoreFile == null) {
-        // TODO(bradfordcsmith): deprecate and remove this flag
-        stage1RestoreFile = flags.continueSavedCompilationFile;
-      }
-      if (stage1RestoreFile != null) {
-        config.setContinueSavedCompilationFileName(
-            stage1RestoreFile, /* restoredCompilationStage= */ 1);
-      }
-      String stage2RestoreFile = flags.restoreStage2FromFile;
-      if (stage1RestoreFile != null) {
-        checkState(stage2RestoreFile == null, "cannot restore both from stage 1 and from stage 2");
-        config.setContinueSavedCompilationFileName(stage1RestoreFile, 1);
-      } else if (stage2RestoreFile != null) {
-        config.setContinueSavedCompilationFileName(stage2RestoreFile, 2);
-      }
-
-      String stage1SaveFile = flags.saveStage1ToFile;
-      if (stage1SaveFile == null) {
-        // TODO(bradfordcsmith): deprecate and remove this flag
-        stage1SaveFile = flags.saveAfterChecksFile;
-      }
-      String stage2SaveFile = flags.saveStage2ToFile;
-      if (stage1SaveFile != null) {
-        checkState(stage2SaveFile == null, "cannot save both stage 1 and stage 2");
-        checkState(stage1RestoreFile == null, "cannot perform stage 1 on a restored stage 1");
-        config.setSaveCompilationStateToFilename(stage1SaveFile, 1);
-      } else if (stage2SaveFile != null) {
-        checkState(stage2RestoreFile == null, "Cannot perform stage 2 on a restored stage 2");
-        checkState(stage1RestoreFile != null, "Saving stage 2 requires restoring from stage 1");
-        config.setSaveCompilationStateToFilename(stage2SaveFile, 2);
+      SegmentOfCompilationToRun segmentOfCompilationToRun = flags.segmentOfCompilationToRun;
+      switch (segmentOfCompilationToRun) {
+        case CHECKS -> {
+          checkState(
+              flags.filenameToRestoreFrom == null,
+              "Cannot restore and run CHECKS segment of compilation");
+          config.setSaveCompilationStateToFilename(flags.filenameToSaveTo, 1);
+        }
+        case OPTIMIZATIONS -> {
+          config.setContinueSavedCompilationFileName(flags.filenameToRestoreFrom, 1);
+          config.setSaveCompilationStateToFilename(flags.filenameToSaveTo, 2);
+        }
+        case FINALIZATIONS -> {
+          checkState(
+              flags.filenameToSaveTo == null,
+              "Cannot run FINALIZATIONS segment of compilation and then save the result");
+          config.setContinueSavedCompilationFileName(flags.filenameToRestoreFrom, 2);
+        }
+        case ENTIRE_COMPILATION -> {}
+        default ->
+            throw new IllegalStateException(
+                "Cannot run %s segment of compilation: " + flags.segmentOfCompilationToRun);
       }
     }
 
@@ -1907,9 +1869,6 @@ public class CommandLineRunner extends AbstractCommandLineRunner<Compiler, Compi
     options.setIncrementalChecks(flags.incrementalCheckMode);
 
     options.setContinueAfterErrors(flags.continueAfterErrors);
-
-    // TODO(b/144593112): remove this flag.
-    options.setBadRewriteModulesBeforeTypecheckingThatWeWantToGetRidOf(true);
 
     if (flags.useTypesForOptimization) {
       level.setTypeBasedOptimizationOptions(options);

@@ -23,7 +23,6 @@ import static com.google.common.collect.ImmutableSortedSet.toImmutableSortedSet;
 import static com.google.common.collect.Streams.stream;
 import static java.util.Comparator.naturalOrder;
 
-import com.google.common.annotations.GwtIncompatible;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Function;
 import com.google.common.collect.ImmutableList;
@@ -37,7 +36,7 @@ import com.google.javascript.jscomp.JSError;
 import java.nio.file.Path;
 import java.util.Comparator;
 import java.util.Map;
-import org.jspecify.nullness.Nullable;
+import org.jspecify.annotations.Nullable;
 
 /**
  * Provides compile-time locate semantics for ES6 and CommonJS modules.
@@ -379,7 +378,6 @@ public final class ModuleLoader {
       }
     },
 
-    @GwtIncompatible("Paths.get, Path.toAbsolutePath")
     ABSOLUTE {
       @Override
       public String apply(String path) {

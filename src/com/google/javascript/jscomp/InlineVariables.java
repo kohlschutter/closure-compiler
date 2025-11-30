@@ -23,6 +23,7 @@ import static com.google.common.base.Preconditions.checkState;
 import com.google.common.base.Predicate;
 import com.google.common.base.Predicates;
 import com.google.common.collect.LinkedHashMultimap;
+import com.google.errorprone.annotations.CanIgnoreReturnValue;
 import com.google.javascript.jscomp.CodingConvention.SubclassRelationship;
 import com.google.javascript.jscomp.ReferenceCollector.Behavior;
 import com.google.javascript.rhino.JSDocInfo;
@@ -30,7 +31,7 @@ import com.google.javascript.rhino.Node;
 import java.util.Iterator;
 import java.util.LinkedHashMap;
 import java.util.List;
-import org.jspecify.nullness.Nullable;
+import org.jspecify.annotations.Nullable;
 
 /**
  * Using the infrastructure provided by {@link ReferenceCollector}, identify variables that are used
@@ -376,6 +377,16 @@ class InlineVariables implements CompilerPass {
         }
       }
 
+      private final InitiallyUnknown<Boolean> isReferencedWeakly = new InitiallyUnknown<>();
+
+      private boolean isReferencedWeakly() {
+        if (isReferencedWeakly.isKnown()) {
+          return isReferencedWeakly.getKnownValue();
+        } else {
+          return isReferencedWeakly.setKnownValueOnce(referenceInfo.isReferencedWeakly());
+        }
+      }
+
       private final InitiallyUnknown<Boolean> isWellDefinedAssignedOnce = new InitiallyUnknown<>();
 
       /**
@@ -442,7 +453,7 @@ class InlineVariables implements CompilerPass {
 
       @Override
       public InlineVarAnalysis analyze() {
-        if (hasNoInlineAnnotation(v)) {
+        if (hasNoInlineAnnotation(v) || isReferencedWeakly()) {
           return getNegativeInlineVarAnalysis();
         }
         final Reference initialization = getInitialization();
@@ -615,7 +626,7 @@ class InlineVariables implements CompilerPass {
     }
 
     /** Indicates that the analyzed variable may be inlined. */
-    private class PositiveInlineVarAnalysis extends InlineVarAnalysis {
+    private static class PositiveInlineVarAnalysis extends InlineVarAnalysis {
       private final Runnable inliner;
 
       private PositiveInlineVarAnalysis(Runnable inliner) {
@@ -647,7 +658,7 @@ class InlineVariables implements CompilerPass {
      * Indicates that the analyzed variable is an alias and the decision about whether to inline it
      * must wait until inlining has been done (or not) for the original value it aliases.
      */
-    private class VarIsAliasAnalysis extends InlineVarAnalysis {
+    private static class VarIsAliasAnalysis extends InlineVarAnalysis {
       private final Var aliasedVar;
 
       private VarIsAliasAnalysis(Var aliasedVar) {
@@ -713,7 +724,7 @@ class InlineVariables implements CompilerPass {
     }
 
     /** Used to initialize fields in a `StandardVarExpert` object. */
-    private class VarExpertInitData {
+    private static class VarExpertInitData {
 
       Var v;
       ReferenceCollection referenceInfo;
@@ -1018,6 +1029,7 @@ class InlineVariables implements CompilerPass {
       return isKnown && value != other;
     }
 
+    @CanIgnoreReturnValue
     T setKnownValueOnce(T value) {
       checkState(!isKnown, "already known");
       this.value = value;

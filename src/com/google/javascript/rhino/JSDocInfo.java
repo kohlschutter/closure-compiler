@@ -64,7 +64,7 @@ import java.util.Objects;
 import java.util.Set;
 import java.util.TreeMap;
 import java.util.function.Supplier;
-import org.jspecify.nullness.Nullable;
+import org.jspecify.annotations.Nullable;
 
 /**
  * JSDoc information describing JavaScript code. JSDoc is represented as a unified object with
@@ -309,7 +309,6 @@ public class JSDocInfo implements Serializable {
     CONST,
     CONSTRUCTOR,
     DEFINE,
-    HIDDEN,
     TYPE_SUMMARY,
     FINAL,
     OVERRIDE,
@@ -326,6 +325,7 @@ public class JSDocInfo implements Serializable {
     NOCOMPILE,
     NODTS,
     UNRESTRICTED,
+    USED_VIA_DOT_CONSTRUCTOR,
     STRUCT,
     DICT,
     NOCOLLAPSE,
@@ -335,6 +335,7 @@ public class JSDocInfo implements Serializable {
     COLLAPSIBLE_OR_BREAK_MY_CODE,
     NOCOVERAGE,
     REQUIRE_INLINING,
+    ENCOURAGE_INLINING,
 
     NG_INJECT,
     WIZ_ACTION,
@@ -554,9 +555,9 @@ public class JSDocInfo implements Serializable {
 
     @Override
     boolean isEquivalentTo(SourcePosition<Node> that) {
-      if (!(that instanceof TypePosition)
+      if (!(that instanceof TypePosition typePosition)
           || !isSamePositionAs(that)
-          || brackets != ((TypePosition) that).brackets
+          || brackets != typePosition.brackets
           || (getItem() == null) != (that.getItem() == null)) {
         return false;
       }
@@ -651,7 +652,7 @@ public class JSDocInfo implements Serializable {
     return builder;
   }
 
-  @SuppressWarnings("MissingOverride") // Adding @Override breaks the GWT compilation.
+  @Override
   public JSDocInfo clone() {
     return clone(false);
   }
@@ -793,11 +794,6 @@ public class JSDocInfo implements Serializable {
     return checkBit(Bit.DEFINE);
   }
 
-  /** Returns whether the {@code @hidden} annotation is present on this {@link JSDocInfo}. */
-  public boolean isHidden() {
-    return checkBit(Bit.HIDDEN);
-  }
-
   /** Returns whether the {@code @override} annotation is present on this {@link JSDocInfo}. */
   public boolean isOverride() {
     return checkBit(Bit.OVERRIDE);
@@ -872,6 +868,13 @@ public class JSDocInfo implements Serializable {
    */
   public boolean isRequireInlining() {
     return checkBit(Bit.REQUIRE_INLINING);
+  }
+
+  /**
+   * Returns whether the {@code @encourageInlining} annotation is present on this {@link JSDocInfo}.
+   */
+  public boolean isEncourageInlining() {
+    return checkBit(Bit.ENCOURAGE_INLINING);
   }
 
   /**
@@ -1241,9 +1244,19 @@ public class JSDocInfo implements Serializable {
     return checkBit(Bit.SASS_GENERATED_CSS_TS);
   }
 
-  /** Returns whether JSDoc is annotated with the {@code @thirdPartyCode} annotation. */
+  /**
+   * Returns whether JSDoc is annotated with the {@code @closureUnawareCode} annotation. Generally,
+   * prefer calling {@link Node#isClosureUnawareCode() instead of referencing this jsdoc, as this
+   * annotation is NOT serialized to TypedAST (because an equivalent bit is instead set in the
+   * SourceFile's TypedAST representation).
+   */
   public boolean isClosureUnawareCode() {
     return checkBit(Bit.CLOSURE_UNAWARE_CODE);
+  }
+
+  /** Returns whether JSDoc is annotated with the {@code @usedViaDotConstructor} annotation. */
+  public boolean isUsedViaDotConstructor() {
+    return checkBit(Bit.USED_VIA_DOT_CONSTRUCTOR);
   }
 
   /** Gets the description specified by the {@code @license} annotation. */
@@ -1548,8 +1561,8 @@ public class JSDocInfo implements Serializable {
       throw new IllegalArgumentException("no property value");
     }
 
-    if (propertyValues instanceof Object[]) {
-      return ((Object[]) propertyValues)[index];
+    if (propertyValues instanceof Object[] array) {
+      return array[index];
     }
 
     if (index != 0) {
@@ -1667,8 +1680,7 @@ public class JSDocInfo implements Serializable {
                           | Bit.NOCOMPILE.mask
                           | Bit.NOCOVERAGE.mask
                           | Bit.TYPE_SUMMARY.mask
-                          | Bit.ENHANCED_NAMESPACE.mask
-                          | Bit.CLOSURE_UNAWARE_CODE.mask))
+                          | Bit.ENHANCED_NAMESPACE.mask))
                   != 0
               || isModsRecorded());
     }
@@ -1688,6 +1700,14 @@ public class JSDocInfo implements Serializable {
      */
     public boolean isRequireInlining() {
       return checkBit(Bit.REQUIRE_INLINING);
+    }
+
+    /**
+     * Returns whether the {@code @encourageInlining} annotation is present on this {@link
+     * JSDocInfo}.
+     */
+    public boolean isEncourageInlining() {
+      return checkBit(Bit.ENCOURAGE_INLINING);
     }
 
     /**
@@ -2298,17 +2318,6 @@ public class JSDocInfo implements Serializable {
     }
 
     /**
-     * Records that the {@link JSDocInfo} being built should have its {@link JSDocInfo#isHidden()}
-     * flag set to {@code true}.
-     *
-     * @return {@code true} if the hiddenness was recorded and {@code false} if it was already
-     *     defined
-     */
-    public boolean recordHiddenness() {
-      return populateBit(Bit.HIDDEN, true);
-    }
-
-    /**
      * Records that the {@link JSDocInfo} being built should have its {@link
      * JSDocInfo#isNoCompile()} flag set to {@code true}.
      *
@@ -2350,6 +2359,18 @@ public class JSDocInfo implements Serializable {
      */
     public boolean recordNoInline() {
       return populateBit(Bit.NOINLINE, true);
+    }
+
+    /**
+     * Records that the {@link JSDocInfo} being built should have its {@link
+     * JSDocInfo#isEncourageInlining()} flag set to {@code true}.
+     *
+     * @return {@code true} if the encourageInlining flag was recorded and {@code false} if it was
+     *     already recorded
+     */
+    @CanIgnoreReturnValue
+    public boolean recordEncourageInlining() {
+      return populateBit(Bit.ENCOURAGE_INLINING, true);
     }
 
     /**
@@ -2543,6 +2564,7 @@ public class JSDocInfo implements Serializable {
      * Records that the {@link JSDocInfo} being built should have its {@link
      * JSDocInfo#isImplicitCast()} flag set to {@code true}.
      */
+    @CanIgnoreReturnValue
     public boolean recordImplicitCast() {
       return populateBit(Bit.IMPLICITCAST, true);
     }
@@ -2728,6 +2750,20 @@ public class JSDocInfo implements Serializable {
     /** Records that this JSDoc was annotated with the {@code @closureUnaware} annotation. */
     public boolean recordClosureUnawareCode() {
       return populateBit(Bit.CLOSURE_UNAWARE_CODE, true);
+    }
+
+    /**
+     * Removes the {@code @closureUnaware} annotation from this JSDoc, returning true the annotation
+     * was present before removal.
+     */
+    @CanIgnoreReturnValue
+    public boolean removeClosureUnawareCode() {
+      return populateBit(Bit.CLOSURE_UNAWARE_CODE, false);
+    }
+
+    /** Records that this JSDoc was annotated with the {@code @usedViaDotConstructor} annotation. */
+    public boolean recordUsedViaDotConstructor() {
+      return populateBit(Bit.USED_VIA_DOT_CONSTRUCTOR, true);
     }
 
     // TODO(sdh): this is a new method - consider removing it in favor of recordType?

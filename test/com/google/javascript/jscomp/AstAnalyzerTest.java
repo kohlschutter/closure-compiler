@@ -18,7 +18,6 @@ package com.google.javascript.jscomp;
 
 import static com.google.common.base.Preconditions.checkState;
 import static com.google.common.truth.Truth.assertThat;
-import static com.google.javascript.jscomp.CompilerTestCase.lines;
 import static com.google.javascript.jscomp.DiagnosticGroups.ES5_STRICT;
 import static com.google.javascript.rhino.Token.ADD;
 import static com.google.javascript.rhino.Token.ARRAYLIT;
@@ -82,14 +81,14 @@ import static com.google.javascript.rhino.Token.YIELD;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.javascript.jscomp.AccessorSummary.PropertyAccessKind;
-import com.google.javascript.jscomp.base.format.SimpleFormat;
 import com.google.javascript.jscomp.colors.StandardColors;
 import com.google.javascript.rhino.Node;
 import com.google.javascript.rhino.Token;
+import com.google.javascript.rhino.jstype.JSType;
 import com.google.javascript.rhino.jstype.JSTypeNative;
+import com.google.javascript.rhino.jstype.JSTypeRegistry;
 import java.util.ArrayDeque;
 import java.util.Optional;
-import org.jspecify.nullness.Nullable;
 import org.junit.Test;
 import org.junit.experimental.runners.Enclosed;
 import org.junit.runner.RunWith;
@@ -142,7 +141,7 @@ public final class AstAnalyzerTest {
 
     @Override
     public String toString() {
-      return SimpleFormat.format("%s node in `%s` -> %s", token, js, expect);
+      return String.format("%s node in `%s` -> %s", token, js, expect);
     }
   }
 
@@ -152,9 +151,17 @@ public final class AstAnalyzerTest {
 
   /** Provides methods for parsing and accessing the compiler used for the parsing. */
   private static final class ParseHelper {
-    private @Nullable Compiler compiler = null;
+    private boolean useTypesForLocalOptimizations = false;
+    private boolean hasGlobalRegexpReferences = true;
+    private boolean assumeGettersArePure = true;
+    private JSTypeRegistry typeRegistry;
+    private final AccessorSummary accessorSummary =
+        AccessorSummary.create(
+            ImmutableMap.of(
+                "getter", PropertyAccessKind.GETTER_ONLY, //
+                "setter", PropertyAccessKind.SETTER_ONLY));
 
-    private void resetCompiler() {
+    private Compiler newCompiler() {
       CompilerOptions options = new CompilerOptions();
 
       // To allow octal literals such as 0123 to be parsed.
@@ -163,19 +170,17 @@ public final class AstAnalyzerTest {
 
       options.setLanguageIn(CompilerOptions.LanguageMode.UNSUPPORTED);
 
-      compiler = new Compiler();
+      Compiler compiler = new Compiler();
       compiler.initOptions(options);
 
-      compiler.setAccessorSummary(
-          AccessorSummary.create(
-              ImmutableMap.of(
-                  "getter", PropertyAccessKind.GETTER_ONLY, //
-                  "setter", PropertyAccessKind.SETTER_ONLY)));
+      return compiler;
     }
 
     private Node parseInternal(String js) {
+      Compiler compiler = newCompiler();
       Node n = compiler.parseTestCode(js);
       assertThat(compiler.getErrors()).isEmpty();
+      this.typeRegistry = compiler.getTypeRegistry();
       return n;
     }
 
@@ -184,16 +189,12 @@ public final class AstAnalyzerTest {
      * preorder DFS.
      */
     Node parseFirst(Token token, String js) {
-      resetCompiler();
-
       return findFirst(token, parseInternal(js)).get();
     }
 
     Node parseCase(AnalysisCase kase) {
-      resetCompiler();
-      compiler.setHasRegExpGlobalReferences(kase.globalRegExp);
-      compiler.getOptions().setAssumeGettersArePure(kase.assumeGettersArePure);
-
+      this.hasGlobalRegexpReferences = kase.globalRegExp;
+      this.assumeGettersArePure = kase.assumeGettersArePure;
       Node root = parseInternal(kase.js);
       if (kase.token == null) {
         return root.getFirstChild();
@@ -203,7 +204,14 @@ public final class AstAnalyzerTest {
     }
 
     AstAnalyzer getAstAnalyzer() {
-      return compiler.getAstAnalyzer();
+      return new AstAnalyzer(
+          AstAnalyzer.Options.builder()
+              .setUseTypesForLocalOptimization(useTypesForLocalOptimizations)
+              .setHasRegexpGlobalReferences(hasGlobalRegexpReferences)
+              .setAssumeGettersArePure(assumeGettersArePure)
+              .build(),
+          typeRegistry,
+          accessorSummary);
     }
   }
 
@@ -848,26 +856,40 @@ public final class AstAnalyzerTest {
     }
 
     @Test
-    public void testTypeBasedStringMethodCallSideEffects() {
+    public void testStringMethodCallSideEffects_noTypesForLocalOptimizations() {
       ParseHelper helper = new ParseHelper();
 
-      Node xDotReplaceCall = helper.parseFirst(CALL, lines("x.replace(/xyz/g, '');"));
+      Node xDotReplaceCall = helper.parseFirst(CALL, "x.replace(/xyz/g, '');");
       AstAnalyzer astAnalyzer = helper.getAstAnalyzer();
       assertThat(astAnalyzer.functionCallHasSideEffects(xDotReplaceCall)).isTrue();
 
-      helper.compiler.setHasRegExpGlobalReferences(false);
+      helper.hasGlobalRegexpReferences = false;
+      astAnalyzer = helper.getAstAnalyzer();
       assertThat(astAnalyzer.functionCallHasSideEffects(xDotReplaceCall)).isTrue();
 
       Node xNode = xDotReplaceCall.getFirstFirstChild();
-      xNode.setJSType(helper.compiler.getTypeRegistry().getNativeType(JSTypeNative.STRING_TYPE));
+      xNode.setJSType(helper.typeRegistry.getNativeType(JSTypeNative.STRING_TYPE));
       assertThat(astAnalyzer.functionCallHasSideEffects(xDotReplaceCall)).isTrue();
+    }
 
-      helper.compiler.getOptions().setUseTypesForLocalOptimization(true);
-      assertThat(astAnalyzer.functionCallHasSideEffects(xDotReplaceCall)).isFalse();
+    @Test
+    public void testTypeBasedStringMethodCallSideEffects_useTypesForLocalOptimziations() {
+      ParseHelper helper = new ParseHelper();
+      helper.useTypesForLocalOptimizations = true;
+      helper.hasGlobalRegexpReferences = false;
 
-      xNode.setJSType(null);
-      xNode.setColor(StandardColors.STRING);
-      assertThat(astAnalyzer.functionCallHasSideEffects(xDotReplaceCall)).isFalse();
+      Node xDotReplaceCall = helper.parseFirst(CALL, "x.replace(/xyz/g, '');");
+      Node xDotReplaceCallStringType = xDotReplaceCall.cloneTree();
+      Node xDotReplaceCallStringColor = xDotReplaceCall.cloneTree();
+
+      JSType stringType = helper.typeRegistry.getNativeType(JSTypeNative.STRING_TYPE);
+      xDotReplaceCallStringType.getFirstFirstChild().setJSType(stringType);
+      xDotReplaceCallStringColor.getFirstFirstChild().setColor(StandardColors.STRING);
+      AstAnalyzer astAnalyzer = helper.getAstAnalyzer();
+
+      assertThat(astAnalyzer.functionCallHasSideEffects(xDotReplaceCall)).isTrue();
+      assertThat(astAnalyzer.functionCallHasSideEffects(xDotReplaceCallStringType)).isFalse();
+      assertThat(astAnalyzer.functionCallHasSideEffects(xDotReplaceCallStringColor)).isFalse();
     }
   }
 
@@ -895,7 +917,7 @@ public final class AstAnalyzerTest {
     @Test
     public void test() {
       ParseHelper parseHelper = new ParseHelper();
-      Node func = parseHelper.parseFirst(CALL, SimpleFormat.format("%s(1);", functionName));
+      Node func = parseHelper.parseFirst(CALL, String.format("%s(1);", functionName));
       assertThat(parseHelper.getAstAnalyzer().functionCallHasSideEffects(func)).isFalse();
     }
   }
@@ -973,7 +995,7 @@ public final class AstAnalyzerTest {
     @Test
     public void noSideEffectsForKnownConstructor() {
       ParseHelper parseHelper = new ParseHelper();
-      Node newNode = parseHelper.parseFirst(NEW, SimpleFormat.format("new %s();", constructorName));
+      Node newNode = parseHelper.parseFirst(NEW, String.format("new %s();", constructorName));
       AstAnalyzer astAnalyzer = parseHelper.getAstAnalyzer();
       // we know nothing about the class being instantiated, so assume side effects occur.
       assertThat(astAnalyzer.constructorCallHasSideEffects(newNode)).isFalse();

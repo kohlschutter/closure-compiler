@@ -20,8 +20,8 @@ import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.base.Preconditions.checkNotNull;
 import static com.google.common.base.Preconditions.checkState;
 
-import com.google.common.annotations.GwtIncompatible;
 import com.google.common.base.Preconditions;
+import com.google.errorprone.annotations.CanIgnoreReturnValue;
 import com.google.javascript.rhino.IR;
 import com.google.javascript.rhino.JSDocInfo;
 import com.google.javascript.rhino.Node;
@@ -31,7 +31,7 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-import org.jspecify.nullness.Nullable;
+import org.jspecify.annotations.Nullable;
 
 /**
  * Replaces `goog.provide` calls and removes goog.{require,requireType,forwardDeclare} calls.
@@ -63,6 +63,8 @@ class ProcessClosureProvidesAndRequires implements CompilerPass {
   // Use a LinkedHashMap because the goog.provides must be processed in a deterministic order.
   private final Map<String, ProvidedName> providedNames = new LinkedHashMap<>();
 
+  private final Set<String> exportedVariables = new LinkedHashSet<>();
+
   // If this is true, rewriting will not remove any goog.provide or goog.require calls
   private final boolean preserveGoogProvidesAndRequires;
   private final List<Node> requiresToBeRemoved = new ArrayList<>();
@@ -84,6 +86,10 @@ class ProcessClosureProvidesAndRequires implements CompilerPass {
   @Override
   public void process(Node externs, Node root) {
     rewriteProvidesAndRequires(externs, root);
+  }
+
+  Set<String> getExportedVariableNames() {
+    return exportedVariables;
   }
 
   /** Collects all `goog.provide`s in the given namespace and warns on invalid code */
@@ -144,49 +150,58 @@ class ProcessClosureProvidesAndRequires implements CompilerPass {
     @Override
     public void visit(NodeTraversal t, Node n, Node parent) {
       switch (n.getToken()) {
-        case CALL:
+        case CALL -> {
           Node left = n.getFirstChild();
           if (left.isGetProp()) {
             Node name = left.getFirstChild();
-            if (name.isName() && GOOG.equals(name.getString())) {
-              // For the sake of simplicity, we report code changes
-              // when we see a provides/requires, and don't worry about
-              // reporting the change when we actually do the replacement.
-              switch (left.getString()) {
-                case "require":
-                case "requireType":
-                  if (isValidPrimitiveCall(t, n)) {
-                    processRequireCall(n, parent);
-                  }
-                  break;
-                case "provide":
-                  if (isValidPrimitiveCall(t, n)) {
-                    processProvideCall(t, n, parent);
-                  }
-                  break;
-                case "forwardDeclare":
-                  if (isValidPrimitiveCall(t, n)) {
-                    processForwardDeclare(n, parent);
-                  }
-                  break;
-              }
+            if (name.matchesName(GOOG)) {
+              visitGoogMethodCall(t, parent, n, left.getString());
             }
           }
-          break;
-
-        case ASSIGN:
-        case NAME:
-          // If this is an assignment to a provided name, remove the provided object.
-          handleCandidateProvideDefinition(t, n, parent);
-          break;
-
-        case EXPR_RESULT:
-          handleStubDefinition(t, n);
-          break;
-
-        default:
-          break;
+        }
+        case ASSIGN, NAME ->
+            // If this is an assignment to a provided name, remove the provided object.
+            handleCandidateProvideDefinition(t, n, parent);
+        case EXPR_RESULT -> handleStubDefinition(t, n);
+        default -> {}
       }
+    }
+  }
+
+  private void visitGoogMethodCall(NodeTraversal t, Node parent, Node n, String methodName) {
+    // For the sake of simplicity, we report code changes
+    // when we see a provides/requires, and don't worry about
+    // reporting the change when we actually do the replacement.
+    switch (methodName) {
+      case "exportSymbol" -> {
+        // Note: exportSymbol is allowed in local scope
+        Node arg = n.getSecondChild();
+        if (arg.isStringLit()) {
+          String argString = arg.getString();
+          int dot = argString.indexOf('.');
+          if (dot == -1) {
+            exportedVariables.add(argString);
+          } else {
+            exportedVariables.add(argString.substring(0, dot));
+          }
+        }
+      }
+      case "require", "requireType" -> {
+        if (isValidPrimitiveCall(t, n)) {
+          processRequireCall(n, parent);
+        }
+      }
+      case "provide" -> {
+        if (isValidPrimitiveCall(t, n)) {
+          processProvideCall(t, n, parent);
+        }
+      }
+      case "forwardDeclare" -> {
+        if (isValidPrimitiveCall(t, n)) {
+          processForwardDeclare(n, parent);
+        }
+      }
+      default -> {}
     }
   }
 
@@ -335,28 +350,17 @@ class ProcessClosureProvidesAndRequires implements CompilerPass {
     if (!t.inGlobalHoistScope()) {
       return;
     }
-    String name = null;
-    switch (n.getParent().getToken()) {
-      case LET:
-      case CONST:
-        if (!t.inGlobalScope()) {
-          // let/const in the global hoist scope but not the global scope are not globals
-          return;
-        }
-        // fall through
-      case VAR:
-        name = n.getString();
-        break;
-      case EXPR_RESULT:
-        if (n.isAssign()) {
-          name = n.getFirstChild().getQualifiedName();
-        }
-        break;
-      case CLASS: // Class and function provides are forbidden; see ProcessClosurePrimitives's
-      case FUNCTION: // CLASS_NAMESPACE_ERROR and FUNCTION_NAMESPACE_ERROR.
-      default:
-        break;
-    }
+    String name =
+        switch (n.getParent().getToken()) {
+          case LET, CONST -> t.inGlobalScope() ? n.getString() : null;
+          case VAR -> n.getString();
+          case EXPR_RESULT -> n.isAssign() ? n.getFirstChild().getQualifiedName() : null;
+          case CLASS, FUNCTION ->
+              // Class and function provides are forbidden; see ProcessClosurePrimitives's
+              // CLASS_NAMESPACE_ERROR and FUNCTION_NAMESPACE_ERROR.
+              null;
+          default -> null;
+        };
 
     if (name == null) {
       return;
@@ -429,6 +433,7 @@ class ProcessClosureProvidesAndRequires implements CompilerPass {
     private boolean fromLegacyModule;
     private boolean hasImplicitInitialization;
 
+    @CanIgnoreReturnValue
     ProvidedNameBuilder setNamespace(String namespace) {
       this.namespace = namespace;
       return this;
@@ -438,11 +443,13 @@ class ProcessClosureProvidesAndRequires implements CompilerPass {
      * @param node Can be null (for GOOG or an implicit name), an EXPR_RESULT for a goog.provide, or
      *     an EXPR_RESULT or name declaration for a previously provided name.
      */
+    @CanIgnoreReturnValue
     ProvidedNameBuilder setNode(@Nullable Node node) {
       this.node = node;
       return this;
     }
 
+    @CanIgnoreReturnValue
     ProvidedNameBuilder setChunk(@Nullable JSChunk chunk) {
       this.chunk = chunk;
       return this;
@@ -451,6 +458,7 @@ class ProcessClosureProvidesAndRequires implements CompilerPass {
     /**
      * @param explicit Whether this came from an actual goog.provide('a.b.c'); call
      */
+    @CanIgnoreReturnValue
     ProvidedNameBuilder setExplicit(boolean explicit) {
       this.explicit = explicit;
       return this;
@@ -459,12 +467,14 @@ class ProcessClosureProvidesAndRequires implements CompilerPass {
     /**
      * @param alreadyInitialized Whether this came from an actual goog.provide('a.b.c'); call
      */
+    @CanIgnoreReturnValue
     ProvidedNameBuilder setHasImplicitInitialization(boolean alreadyInitialized) {
       this.hasImplicitInitialization = alreadyInitialized;
       return this;
     }
 
     /** Whether this comes from a legacy goog.module */
+    @CanIgnoreReturnValue
     ProvidedNameBuilder setFromLegacyModule(boolean fromLegacyModule) {
       this.fromLegacyModule = fromLegacyModule;
       return this;
@@ -835,7 +845,6 @@ class ProcessClosureProvidesAndRequires implements CompilerPass {
     }
 
     @Override
-    @GwtIncompatible("Unnecessary") // This is just for debugging in an IDE.
     public String toString() {
       String explicitOrImplicit = isExplicitlyProvided() ? "explicit" : "implicit";
       return String.format("ProvidedName: %s, %s", namespace, explicitOrImplicit);

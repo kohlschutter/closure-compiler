@@ -19,7 +19,6 @@ package com.google.javascript.jscomp;
 import static com.google.common.base.Preconditions.checkState;
 import static com.google.javascript.jscomp.AstFactory.type;
 
-import com.google.common.base.Predicate;
 import com.google.common.collect.HashMultimap;
 import com.google.common.collect.LinkedHashMultimap;
 import com.google.common.collect.SetMultimap;
@@ -64,23 +63,15 @@ public final class Es6RewriteBlockScopedDeclaration extends AbstractPostOrderCal
 
   @Override
   public void visit(NodeTraversal t, Node n, Node parent) {
-    if (!n.hasChildren() || !NodeUtil.isBlockScopedDeclaration(n.getFirstChild())) {
-      return;
-    }
     // NOTE: This pass depends on for-of being transpiled away before it runs.
     checkState(parent == null || !parent.isForOf(), parent);
 
     if (n.isLet() || n.isConst()) {
+      // nothing to do for vars here
       letConsts.add(n);
-    }
-    if (NodeUtil.isNameDeclaration(n)) {
       for (Node nameNode = n.getFirstChild(); nameNode != null; nameNode = nameNode.getNext()) {
         visitBlockScopedNameDeclaration(n, nameNode);
       }
-    } else {
-      // NOTE: This pass depends on class declarations having been transpiled away
-      checkState(n.isFunction() || n.isCatch(), "Unexpected declaration node: %s", n);
-      visitBlockScopedNameDeclaration(n, n.getFirstChild());
     }
   }
 
@@ -99,18 +90,14 @@ public final class Es6RewriteBlockScopedDeclaration extends AbstractPostOrderCal
   }
 
   /**
-   * Renames block-scoped declarations that shadow a variable in an outer scope
-   *
-   * <p>Also normalizes declarations with no initializer in a loop to be initialized to undefined.
+   * Normalizes block-scoped let/const declarations with no initializer in the loop body to be
+   * initialized to undefined.
    */
   private void visitBlockScopedNameDeclaration(Node decl, Node nameNode) {
     Node parent = decl.getParent();
     // Normalize "let x;" to "let x = undefined;" if in a loop, since we later convert x
     // to be $jscomp$loop$0.x and want to reset the property to undefined every loop iteration.
-    if ((decl.isLet() || decl.isConst())
-        && !nameNode.hasChildren()
-        && (parent == null || !parent.isForIn())
-        && inLoop(decl)) {
+    if (!nameNode.hasChildren() && (parent == null || !parent.isForIn()) && inLoop(decl)) {
       Node undefined = astFactory.createUndefinedValue().srcrefTree(nameNode);
       nameNode.addChildToFront(undefined);
       compiler.reportChangeToEnclosingScope(undefined);
@@ -122,12 +109,14 @@ public final class Es6RewriteBlockScopedDeclaration extends AbstractPostOrderCal
    * consider it to be inside a loop.
    */
   private boolean inLoop(Node n) {
-    Node enclosingNode = NodeUtil.getEnclosingNode(n, isLoopOrFunction);
+    Node enclosingNode =
+        NodeUtil.getEnclosingNode(n, Es6RewriteBlockScopedDeclaration::isLoopOrFunction);
     return enclosingNode != null && !enclosingNode.isFunction();
   }
 
-  private static final Predicate<Node> isLoopOrFunction =
-      (n) -> n.isFunction() || NodeUtil.isLoopStructure(n);
+  private static boolean isLoopOrFunction(Node n) {
+    return n.isFunction() || NodeUtil.isLoopStructure(n);
+  }
 
   private static void extractInlineJSDoc(Node srcDeclaration, Node srcName, Node destDeclaration) {
     JSDocInfo existingInfo = srcDeclaration.getJSDocInfo();
@@ -158,16 +147,19 @@ public final class Es6RewriteBlockScopedDeclaration extends AbstractPostOrderCal
    * <p>If the declarationList of let/const declarations is in a FOR intializer, moves those into
    * separate declarations outside the FOR loop (for maintaining normalization).
    *
-   * <p>TODO: b/197349249 - We won't have any declaration lists here when this pass runs post
+   * <p>We can only have let/const declaration lists (not var) here as this pass runs post
    * normalize.
    */
-  private void handleDeclarationList(Node declarationList, Node parent) {
-    if (declarationList.isVar() && declarationList.hasOneChild()) {
+  private void handleLetConstDeclarationList(Node declarationList, Node parent) {
+    if (declarationList.isVar()) {
       // This declaration list is already handled and we can safely return. This happens because
       // this method is also called by {@code replaceDeclarationWithProperty} where it gets
       // repeatedly called for each name in the declarationList. After the first call
       // to this (for the first name), this declarationList would no longer be {@code Token.CONST}
       // (i.e. it would've become a separate var with an {@code /** const */} annotation).
+      checkState(
+          !declarationList.hasChildren() || declarationList.hasOneChild(),
+          "var declaration can have maximum one child post normalization.");
       return;
     }
 
@@ -184,7 +176,7 @@ public final class Es6RewriteBlockScopedDeclaration extends AbstractPostOrderCal
        * initializer. So both #1 and #2 can exist regardless if this pass runs before and after
        * normalize.
        */
-      handleDeclarationListInVanillaForInitializer(declarationList, parent);
+      handleLetConstDeclarationListInVanillaForInitializer(declarationList, parent);
       return;
     }
 
@@ -202,7 +194,7 @@ public final class Es6RewriteBlockScopedDeclaration extends AbstractPostOrderCal
        * initializer. So both #1 and #2 can exist regardless if this pass runs before and after
        * normalize.
        */
-      handleDeclarationListInForInInitializer(declarationList, parent);
+      handleLetConstDeclarationListInForInInitializer(declarationList, parent);
       return;
     }
 
@@ -244,10 +236,9 @@ public final class Es6RewriteBlockScopedDeclaration extends AbstractPostOrderCal
   }
 
   /**
-   * TODO: b/197349249 - We won't have any declaration lists in the FOR_IN initializer here when
-   * this pass runs post normalize. After that, all lets/consts can be directly converted to vars.
+   * We can only have let/const declaration lists (not var) here as this pass runs post normalize.
    */
-  private void handleDeclarationListInForInInitializer(Node declarationList, Node parent) {
+  private void handleLetConstDeclarationListInForInInitializer(Node declarationList, Node parent) {
     checkState(parent.isForIn());
     Node first = declarationList;
     Node lhs = first.getFirstChild();
@@ -309,10 +300,10 @@ public final class Es6RewriteBlockScopedDeclaration extends AbstractPostOrderCal
   }
 
   /**
-   * TODO: b/197349249 - We won't have any declaration lists in the FOR initializer here when this
-   * pass runs post normalize. After that, all lets/consts can be directly converted to vars.
+   * We can only have let/const declaration lists (not var) here as this pass runs post normalize.
    */
-  private void handleDeclarationListInVanillaForInitializer(Node declarationList, Node parent) {
+  private void handleLetConstDeclarationListInVanillaForInitializer(
+      Node declarationList, Node parent) {
     checkState(parent.isVanillaFor());
     // if the declarationList is in a FOR initializer, move it outside
     Node insertSpot = getInsertSpotBeforeLoop(parent);
@@ -355,9 +346,12 @@ public final class Es6RewriteBlockScopedDeclaration extends AbstractPostOrderCal
   private void rewriteDeclsToVars() {
     if (!letConsts.isEmpty()) {
       for (Node n : letConsts) {
-        // for both lets and consts we want to split the declaration lists when converting them to
-        // vars (to maintain normalization)
-        handleDeclarationList(n, n.getParent());
+        // The Normalize pass splits simple let/const/var declarations already. But it doesn't split
+        // let/const declaration list if it's in a for-loop initializer. Normalize only moves "var"
+        // outside the for initializer, it allows let/const within the initializer. But when we're
+        // rewriting those initializer let/const delcaration lists into simple "vars" lists here, we
+        // split the var declaration list to maintain normalization.
+        handleLetConstDeclarationList(n, n.getParent());
       }
     }
   }
@@ -673,7 +667,7 @@ public final class Es6RewriteBlockScopedDeclaration extends AbstractPostOrderCal
       // If the declaration contains multiple declared variables, split it apart.
       // NOTE: This call could be made for each declarationList once, rather than each name in that
       // list
-      handleDeclarationList(declaration, grandParent);
+      handleLetConstDeclarationList(declaration, grandParent);
 
       // The variable we're working with may have been moved to a new var statement.
       declaration = reference.getParent();
@@ -790,7 +784,7 @@ public final class Es6RewriteBlockScopedDeclaration extends AbstractPostOrderCal
       return astFactory.createName(loopObject.name, type(StandardColors.TOP_OBJECT));
     }
 
-    private class LoopObject {
+    private static class LoopObject {
 
       /**
        * The name of the variable having the loop's internal variables as properties, and the label

@@ -22,7 +22,6 @@ import static com.google.common.truth.Truth.assertThat;
 import static com.google.common.truth.extensions.proto.ProtoTruth.assertThat;
 import static java.util.stream.Collectors.joining;
 
-import com.google.common.annotations.GwtIncompatible;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import com.google.gson.Gson;
@@ -42,7 +41,7 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.function.Consumer;
 import java.util.stream.Stream;
-import org.jspecify.nullness.Nullable;
+import org.jspecify.annotations.Nullable;
 import org.junit.Before;
 import org.junit.Test;
 import org.junit.runner.RunWith;
@@ -73,7 +72,8 @@ public final class SerializeTypedAstPassTest extends CompilerTestCase {
 
   @Override
   protected CompilerPass getProcessor(Compiler compiler) {
-    return new SerializeTypedAstPass(compiler, astConsumer, SerializationOptions.SKIP_DEBUG_INFO);
+    return new SerializeTypedAstPass(
+        compiler, astConsumer, SerializationOptions.builder().setIncludeDebugInfo(false).build());
   }
 
   @Override
@@ -141,14 +141,15 @@ public final class SerializeTypedAstPassTest extends CompilerTestCase {
                 mandatorySource,
                 SourceFile.fromCode(
                     "foo.i.js",
-                    lines(
-                        "/** @fileoverview @typeSummary */", //
-                        "",
-                        "goog.loadModule(function(exports) {",
-                        "  goog.module('a.Foo');",
-                        "  class Foo { }",
-                        "  exports = Foo;",
-                        "});"))));
+                    """
+                    /** @fileoverview @typeSummary */
+
+                    goog.loadModule(function(exports) {
+                      goog.module('a.Foo');
+                      class Foo { }
+                      exports = Foo;
+                    });
+                    """)));
     SerializationResult emptyResult =
         compile(
             closureExterns, //
@@ -412,12 +413,13 @@ public final class SerializeTypedAstPassTest extends CompilerTestCase {
 
     SerializationResult result =
         compileWithExterns(
-            lines(
-                "class Foo {", //
-                // Ensure JSDoc properties are included (b/180424427)
-                "  /** @param {{arg: string}} x */",
-                "  method(x) { }",
-                "}"),
+            """
+            class Foo {
+            // Ensure JSDoc properties are included (b/180424427)
+              /** @param {{arg: string}} x */
+              method(x) { }
+            }
+            """,
             "");
 
     assertThat(result.ast.getExternsSummary().getPropNamePtrList())
@@ -429,13 +431,14 @@ public final class SerializeTypedAstPassTest extends CompilerTestCase {
     // We want TypedAST to support inline source maps (which are input source maps passed
     // by embedding a `//# sourceMappingURL=<url>` where <url> is a base64-encoded "data url").
     String sourceMapTestCode =
-        lines(
-            "var X = (function () {",
-            "    function X(input) {",
-            "        this.y = input;",
-            "    }",
-            "    return X;",
-            "}());");
+        """
+        var X = (function () {
+            function X(input) {
+                this.y = input;
+            }
+            return X;
+        }());
+        """;
 
     String base64Prefix = "data:application/json;base64,";
     String encodedSourceMap =
@@ -455,13 +458,14 @@ public final class SerializeTypedAstPassTest extends CompilerTestCase {
   public void doesNotSerializeInputSourceMappingURL() throws InvalidProtocolBufferException {
     // We do not want TypedAST to support input source maps (source maps in separate files).
     String sourceMapTestCode =
-        lines(
-            "var X = (function () {",
-            "    function X(input) {",
-            "        this.y = input;",
-            "    }",
-            "    return X;",
-            "}());");
+        """
+        var X = (function () {
+            function X(input) {
+                this.y = input;
+            }
+            return X;
+        }());
+        """;
 
     String code = sourceMapTestCode + "\n//# sourceMappingURL=foo.js.map";
 
@@ -543,19 +547,19 @@ public final class SerializeTypedAstPassTest extends CompilerTestCase {
 
   private void generateDiagnosticFiles() {
     compile(
-        lines(
-            "class Foo0 {",
-            "  w() { }",
-            "}",
-            "class Foo1 extends Foo0 {",
-            "  y() { }",
-            "}",
-            "const ns = {Foo0, Foo1};",
-            "/** @suppress {checkTypes} */",
-            "const /** !Foo1 */ typeMismatch = new Foo0();"));
+        """
+        class Foo0 {
+          w() { }
+        }
+        class Foo1 extends Foo0 {
+          y() { }
+        }
+        const ns = {Foo0, Foo1};
+        /** @suppress {checkTypes} */
+        const /** !Foo1 */ typeMismatch = new Foo0();
+        """);
   }
 
-  @GwtIncompatible
   private static String loadFile(Path path) {
     try (Stream<String> lines = Files.lines(path)) {
       return lines.collect(joining("\n"));
@@ -564,7 +568,6 @@ public final class SerializeTypedAstPassTest extends CompilerTestCase {
     }
   }
 
-  @GwtIncompatible
   private ImmutableList<Path> debugLogFiles() {
     try {
       Path dir =

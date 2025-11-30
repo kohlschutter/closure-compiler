@@ -16,7 +16,7 @@
 
 package com.google.javascript.jscomp;
 
-import org.jspecify.nullness.Nullable;
+import org.jspecify.annotations.Nullable;
 
 /** A warnings guard that suppresses some warnings incompatible with J2CL. */
 public final class J2clSuppressWarningsGuard extends WarningsGuard {
@@ -54,7 +54,7 @@ public final class J2clSuppressWarningsGuard extends WarningsGuard {
 
   @Override
   public @Nullable CheckLevel level(JSError error) {
-    if (error.getSourceName() == null || !error.getSourceName().endsWith(".java.js")) {
+    if (error.sourceName() == null || !error.sourceName().endsWith(".java.js")) {
       return null;
     }
 

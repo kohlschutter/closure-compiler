@@ -35,7 +35,7 @@ import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.logging.Level;
 import java.util.logging.Logger;
-import org.jspecify.nullness.Nullable;
+import org.jspecify.annotations.Nullable;
 
 /**
  * Tracer provides a simple way to trace the handling of a request.
@@ -335,18 +335,10 @@ final class Tracer {
 
     // We know it's less than 5 now
     switch (numSpaces) {
-      case 1:
-        sb.append(" ");
-        break;
-      case 2:
-        sb.append("  ");
-        break;
-      case 3:
-        sb.append("   ");
-        break;
-      case 4:
-        sb.append("    ");
-        break;
+      case 1 -> sb.append(" ");
+      case 2 -> sb.append("  ");
+      case 3 -> sb.append("   ");
+      case 4 -> sb.append("    ");
     }
   }
 

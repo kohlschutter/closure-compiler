@@ -2444,6 +2444,71 @@ chrome.enterprise.platformKeys = function() {};
 
 
 /**
+ * Type of key to generate.
+ * @see https://developer.chrome.com/docs/extensions/reference/api/enterprise/platformKeys#type-Algorithm
+ * @enum {string}
+ */
+chrome.enterprise.Algorithm = {
+  RSA: '',
+  ECDSA: '',
+};
+
+
+/**
+ * Whether to use the Enterprise User Key or the Enterprise Machine Key.
+ * @see https://developer.chrome.com/docs/extensions/reference/api/enterprise/platformKeys#type-Scope
+ * @enum {string}
+ */
+chrome.enterprise.Scope = {
+  USER: '',
+  MACHINE: '',
+};
+
+
+/**
+ * @record
+ * @see https://developer.chrome.com/docs/extensions/reference/api/enterprise/platformKeys#type-RegisterKeyOptions
+ */
+chrome.enterprise.RegisterKeyOptions = function() {};
+
+
+/**
+ * @type {!chrome.enterprise.Algorithm|string} Which algorithm the registered
+ *     key should use.
+ */
+chrome.enterprise.RegisterKeyOptions.prototype.algorithm;
+
+
+/**
+ * @record
+ * @see https://developer.chrome.com/docs/extensions/reference/api/enterprise/platformKeys#type-ChallengeKeyOptions
+ */
+chrome.enterprise.ChallengeKeyOptions = function() {};
+
+
+/**
+ * @type {!ArrayBuffer} A challenge as emitted by the Verified Access Web API.
+ */
+chrome.enterprise.ChallengeKeyOptions.prototype.challenge;
+
+
+/**
+ * @type {!chrome.enterprise.RegisterKeyOptions|undefined} If present, registers
+ *     the challenged key with the specified `scope`'s token. The key can then
+ *     be associated with a certificate and used like any other signing key.
+ *     Subsequent calls to this function will then generate a new Enterprise Key
+ *     in the specified `scope`.
+ */
+chrome.enterprise.ChallengeKeyOptions.prototype.registerKey;
+
+
+/**
+ * @type {!chrome.enterprise.Scope|string} Which Enterprise Key to challenge.
+ */
+chrome.enterprise.ChallengeKeyOptions.prototype.scope;
+
+
+/**
  * @constructor
  * @see https://developer.chrome.com/extensions/enterprise_platformKeys#type-Token
  */
@@ -2462,6 +2527,21 @@ chrome.enterprise.Token.prototype.id;
  *     generation, are hardware-backed.
  */
 chrome.enterprise.Token.prototype.subtleCrypto;
+
+
+/**
+ * Similar to `challengeMachineKey` and `challengeUserKey`, but allows
+ * specifying the algorithm of a registered key. Challenges a hardware-backed
+ * Enterprise Machine Key and emits the response as part of a remote attestation
+ * protocol. Only useful on ChromeOS and in conjunction with the Verified Access
+ * Web API which both issues challenges and verifies responses.
+ *
+ * @param {!chrome.enterprise.ChallengeKeyOptions} options Object containing the
+ *     fields defined in `ChallengeKeyOptions`.
+ * @see https://developer.chrome.com/docs/extensions/reference/api/enterprise/platformKeys#method-challengeKey
+ * @return {Promise<!ArrayBuffer>}
+ */
+chrome.enterprise.platformKeys.challengeKey = function(options) {};
 
 
 /**
@@ -2571,8 +2651,8 @@ chrome.enterprise.reportingPrivate.getPersistentSecret = function(callback) {};
  * Returns byte string associated with the data item stored in a platform
  * specific storage.
  * @param {!string} item Item name (can have containers separated by '/').
- * @param {(function((!ArrayBuffer|undefined)): void)=} callback Called back with the
- *     response.
+ * @param {(function((!ArrayBuffer|undefined)): void)=} callback Called back
+ *     with the response.
  */
 chrome.enterprise.reportingPrivate.getDeviceData = function(item, callback) {};
 
@@ -2580,7 +2660,8 @@ chrome.enterprise.reportingPrivate.getDeviceData = function(item, callback) {};
  * Stores byte string associated with the data item in a platform
  * specific storage.
  * @param {!string} item Item name (can have containers separated by '/').
- * @param {!ArrayBuffer|undefined} data Byte string to associate with the data item.
+ * @param {!ArrayBuffer|undefined} data Byte string to associate with the data
+ *     item.
  * @param {(function(): void)=} callback Called back with the response.
  */
 chrome.enterprise.reportingPrivate.setDeviceData = function(
@@ -2610,7 +2691,8 @@ chrome.enterprise.reportingPrivate.SettingValue = {
  *   windowsMachineDomain: (!string|undefined),
  *   windowsUserDomain: (!string|undefined),
  *   securityPatchLevel: (!string|undefined),
- *   secureBootEnabled: (!chrome.enterprise.reportingPrivate.SettingValue|undefined),
+ *   secureBootEnabled:
+ * (!chrome.enterprise.reportingPrivate.SettingValue|undefined),
  * }}
  */
 chrome.enterprise.reportingPrivate.DeviceInfo;
@@ -2660,18 +2742,19 @@ chrome.enterprise.reportingPrivate.PasswordProtectionTrigger = {
  *   onFileAttachedProviders: (!Array<string>|undefined),
  *   onFileDownloadedProviders: (!Array<string>|undefined),
  *   onBulkDataEntryProviders: (!Array<string>|undefined),
+ *   onPrintProviders: (!Array<string>|undefined),
  *   onSecurityEventProviders: (!Array<string>|undefined),
- *   realtimeUrlCheckMode: chrome.enterprise.reportingPrivate.RealtimeUrlCheckMode,
- *   browserVersion: string,
- *   safeBrowsingProtectionLevel: chrome.enterprise.reportingPrivate.SafeBrowsingLevel,
- *   siteIsolationEnabled: (!boolean|undefined),
- *   builtInDnsClientEnabled: (!boolean|undefined),
- *   passwordProtectionWarningTrigger: chrome.enterprise.reportingPrivate.PasswordProtectionTrigger,
- *   chromeCleanupEnabled: (!boolean|undefined),
+ *   realtimeUrlCheckMode:
+ * chrome.enterprise.reportingPrivate.RealtimeUrlCheckMode, browserVersion:
+ * string, safeBrowsingProtectionLevel:
+ * chrome.enterprise.reportingPrivate.SafeBrowsingLevel, siteIsolationEnabled:
+ * (!boolean|undefined), builtInDnsClientEnabled: (!boolean|undefined),
+ *   passwordProtectionWarningTrigger:
+ * chrome.enterprise.reportingPrivate.PasswordProtectionTrigger,
  *   chromeRemoteDesktopAppBlocked: (!boolean|undefined),
- *   thirdPartyBlockingEnabled: (!boolean|undefined),
  *   osFirewall: chrome.enterprise.reportingPrivate.SettingValue,
  *   systemDnsServers: (!Array<string>|undefined),
+ *   enterpriseProfileId: (!string|undefined),
  * }}
  */
 chrome.enterprise.reportingPrivate.ContextInfo;
@@ -2709,6 +2792,109 @@ chrome.enterprise.reportingPrivate.Certificate;
  *     callback Called back with the response.
  */
 chrome.enterprise.reportingPrivate.getCertificate = function(url, callback) {};
+
+/**
+ * Reports a data masking event.
+ * Since Chrome 130.
+ * @param {!chrome.enterprise.reportingPrivate.DataMaskingEvent} event The
+ *     event to report.
+ * @param {(function(): void)=} callback Called back when this operation is
+ *     finished.
+ */
+chrome.enterprise.reportingPrivate.reportDataMaskingEvent = function(
+    event, callback) {};
+
+/**
+ * @since Chrome 139.
+ * Calls a callback when a data masking rule is triggered.
+ * @param {function(!Array<!chrome.enterprise.reportingPrivate.DataMaskingRules>):
+ *     void} callback Called back with the response.
+ */
+chrome.enterprise.reportingPrivate.onDataMaskingRulesTriggered = function(
+    callback) {};
+
+/**
+ * Data masking event.
+ * @typedef {?{
+ *   url: string,
+ *   eventResult: string,
+ *   triggeredRuleInfo:
+ * Array<chrome.enterprise.reportingPrivate.TriggeredRuleInfo>,
+ * }}
+ */
+chrome.enterprise.reportingPrivate.DataMaskingEvent;
+
+/**
+ * Data masking rule.
+ * @typedef {?{
+ *   url: string,
+ *   triggeredRuleInfo:
+ * Array<chrome.enterprise.reportingPrivate.TriggeredRuleInfo>,
+ * }}
+ */
+chrome.enterprise.reportingPrivate.DataMaskingRules;
+
+/**
+ * Triggered rule info.
+ * @typedef {?{
+ *   ruleId: string,
+ *   ruleName: string,
+ *   matchedDetectors: Array<chrome.enterprise.reportingPrivate.DetectorInfo>,
+ * }}
+ */
+chrome.enterprise.reportingPrivate.TriggeredRuleInfo;
+
+/**
+ * Detector info.
+ * @typedef {?{
+ *   detectorId: string,
+ *   displayName: string,
+ *   detectorType: (!string|undefined),
+ *   maskType: (!string|undefined),
+ *   pattern: (!string|undefined),
+ * }}
+ */
+chrome.enterprise.reportingPrivate.DetectorInfo;
+
+/**
+ * Returns the anti-virus signals.
+ * Since Chrome 105.
+ * @param {!chrome.enterprise.reportingPrivate.UserContext} userContext The
+ *     current user context.
+ * @param {(function(!chrome.enterprise.reportingPrivate.AntiVirusSignal):
+ *     void)} callback Called back with the response.
+ */
+chrome.enterprise.reportingPrivate.getAvInfo = function(
+    userContext, callback) {};
+
+/**
+ * User context.
+ * @typedef {?{
+ *   userId: string,
+ * }}
+ */
+chrome.enterprise.reportingPrivate.UserContext;
+
+/**
+ * Possible states for the Anti-virus product state.
+ * @enum {number}
+ */
+chrome.enterprise.reportingPrivate.AntiVirusProductState = {
+  ON: 0,
+  OFF: 1,
+  SNOOZED: 2,
+  EXPIRED: 3,
+};
+
+/**
+ * Type of the object returned by getAvInfo.
+ * @typedef {?{
+ *   displayName: string,
+ *   productId: string,
+ *   state: chrome.enterprise.reportingPrivate.AntiVirusProductState,
+ * }}
+ */
+chrome.enterprise.reportingPrivate.AntiVirusSignal;
 
 /**
  * @see https://developer.chrome.com/extensions/extension.html
@@ -2969,7 +3155,6 @@ chrome.runtime.Manifest.ExternallyConnectable.prototype.accepts_tls_channel_id;
 
 /**
  * https://developer.chrome.com/extensions/runtime.html#method-getManifest
- * https://developer.chrome.com/apps/runtime#method-getManifest
  * @return {!chrome.runtime.Manifest} The full manifest file of the app or
  *     extension.
  */
@@ -3000,7 +3185,7 @@ chrome.runtime.reload = function() {};
 
 
 /**
- * @see https://developer.chrome.com/apps/runtime#method-requestUpdateCheck
+ * @see https://developer.chrome.com/extensions/runtime#method-requestUpdateCheck
  * @param {function(string, !{version: string}=): void} callback Called with
  *     "throttled", "no_update", or "update_available". If an update is
  *     available, the object contains more information about the available
@@ -3056,7 +3241,7 @@ chrome.runtime.sendNativeMessage = function(
 
 /**
  * The operating system chrome is running on.
- * @see https://developer.chrome.com/apps/runtime#type-PlatformOs
+ * @see https://developer.chrome.com/extensions/runtime#type-PlatformOs
  * @enum {string}
  */
 chrome.runtime.PlatformOs = {
@@ -3072,7 +3257,7 @@ chrome.runtime.PlatformOs = {
 
 /**
  * The machine's processor architecture.
- * @see https://developer.chrome.com/apps/runtime#type-PlatformArch
+ * @see https://developer.chrome.com/extensions/runtime#type-PlatformArch
  * @enum {string}
  */
 chrome.runtime.PlatformArch = {
@@ -3087,7 +3272,7 @@ chrome.runtime.PlatformArch = {
 
 /**
  * The native client architecture.
- * @see https://developer.chrome.com/apps/runtime#type-PlatformNaclArch
+ * @see https://developer.chrome.com/extensions/runtime#type-PlatformNaclArch
  * @enum {string}
  */
 chrome.runtime.PlatformNaclArch = {
@@ -3100,7 +3285,7 @@ chrome.runtime.PlatformNaclArch = {
 
 
 /**
- * @see https://developer.chrome.com/apps/runtime#type-PlatformInfo
+ * @see https://developer.chrome.com/extensions/runtime#type-PlatformInfo
  * @typedef {{
  *   os: !chrome.runtime.PlatformOs,
  *   arch: !chrome.runtime.PlatformArch,
@@ -3814,6 +3999,8 @@ chrome.windows.onCreated;
 /** @type {!ChromeEvent} */
 chrome.windows.onFocusChanged;
 
+/** @type {!ChromeEvent} */
+chrome.windows.onBoundsChanged;
 
 /** @type {!ChromeEvent} */
 chrome.windows.onRemoved;
@@ -5170,7 +5357,8 @@ chrome.identity.ProfileUserInfo;
 
 /**
  * @enum {string}
- * See https://developer.chrome.com/docs/extensions/reference/identity/#type-AccountStatus
+ * See
+ * https://developer.chrome.com/docs/extensions/reference/identity/#type-AccountStatus
  */
 chrome.identity.AccountStatus = {
   SYNC: '',
@@ -5178,19 +5366,22 @@ chrome.identity.AccountStatus = {
 };
 
 /**
- * See https://developer.chrome.com/docs/extensions/reference/identity/#type-ProfileDetails
+ * See
+ * https://developer.chrome.com/docs/extensions/reference/identity/#type-ProfileDetails
  * @typedef {{accountStatus: (!chrome.identity.AccountStatus|undefined)}}
  */
 chrome.identity.ProfileDetails;
 
 /**
- * @param {!chrome.identity.ProfileDetails|function(!chrome.identity.ProfileUserInfo):void} accountStatusOrCallback
- *     Either the accountStatus of the primary profile account or the callback
+ * @param {!chrome.identity.ProfileDetails|function(!chrome.identity.ProfileUserInfo):void}
+ *     accountStatusOrCallback Either the accountStatus of the primary profile
+ *     account or the callback
  * @param {function(!chrome.identity.ProfileUserInfo):void=} opt_callback if
  *     the accountStatus is provided
  * @return {undefined}
  */
-chrome.identity.getProfileUserInfo = function(accountStatusOrCallback, opt_callback) {};
+chrome.identity.getProfileUserInfo = function(
+    accountStatusOrCallback, opt_callback) {};
 
 
 
@@ -7116,6 +7307,136 @@ chrome.sockets.udp.ReceiveErrorEvent = function() {};
  */
 chrome.sockets.udp.onReceiveError;
 
+/**
+ * @const
+ * @see https://developer.chrome.com/extensions/scripting.html
+ */
+chrome.scripting = {};
+
+/**
+ * @param {!chrome.scripting.ScriptInjection} injection
+ * @param {function(Array<!chrome.scripting.InjectionResult>): void=} callback
+ * @return {Promise<Array<!chrome.scripting.InjectionResult>>}
+ * @see https://developer.chrome.com/extensions/scripting#method-executeScript
+ */
+chrome.scripting.executeScript = function(injection, callback) {};
+
+/**
+ * @typedef {{
+ *   args: (!Array|undefined),
+ *   files: (!Array<string>|undefined),
+ *   injectImmediately: (boolean|undefined),
+ *   target: (!chrome.scripting.ScriptInjection),
+ *   world: (string|undefined),
+ *   func: (function()),
+ * }}
+ */
+chrome.scripting.ScriptInjection;
+
+
+/**
+ * @typedef {{
+ *   allFrames: (boolean|undefined),
+ *   documentIds: (!Array<string>|undefined),
+ *   frameIds: (!Array<number>|undefined),
+ *   tabId: (number|undefined),
+ * }}
+ */
+chrome.scripting.InjectionTarget;
+
+/**
+ * @typedef {{
+ *   result: (Object|undefined),
+ *   frameId: (number|undefined),
+ *   documentId: (string|undefined),
+ * }}
+ */
+chrome.scripting.InjectionResult;
+
+
+/**
+ * @param {function(!Array<!chrome.scripting.RegisteredContentScript>): void=}
+ *     callback
+ * @return {Promise<!Array<!chrome.scripting.RegisteredContentScript>>}
+ * @see https://developer.chrome.com/extensions/scripting#method-getRegisteredContentScripts
+ */
+chrome.scripting.getRegisteredContentScripts = function(callback) {};
+
+/**
+ * @param {!Array<!chrome.scripting.RegisteredContentScript>} scripts
+ * @param {function(): void=} callback
+ * @return {Promise<void>}
+ * @see https://developer.chrome.com/extensions/scripting#method-registerContentScripts
+ */
+chrome.scripting.registerContentScripts = function(scripts, callback) {};
+
+/**
+ * @param {!Array<!chrome.scripting.RegisteredContentScript>} scripts
+ * @param {function(): void=} callback
+ * @return {Promise<void>}
+ * @see https://developer.chrome.com/extensions/scripting#method-unregisterContentScripts
+ */
+chrome.scripting.updateContentScripts = function(scripts, callback) {};
+
+/**
+ * @param {!chrome.scripting.ContentScriptFilter} filter
+ * @param {function(): void=} callback
+ * @return {Promise<void>}
+ * @see https://developer.chrome.com/extensions/scripting#method-unregisterContentScripts
+ */
+chrome.scripting.unregisterContentScripts = function(filter, callback) {};
+
+/**
+ * @typedef {{
+ *   id: string,
+ *   js: (!Array<string>|undefined),
+ *   css: (!Array<string>|undefined),
+ *   matches: (!Array<string>|undefined),
+ *   excludeMatches: (!Array<string>|undefined),
+ *   runAt: (string|undefined),
+ *   world: (string|undefined),
+ *   allFrames: (boolean|undefined),
+ *   matchOriginAsFallback: (boolean|undefined),
+ *   persistAcrossSessions: (boolean|undefined),
+ * }}
+ * @see https://developer.chrome.com/extensions/scripting#type-RegisteredContentScript
+ */
+chrome.scripting.RegisteredContentScript;
+
+/**
+ * @typedef {{
+ *   ids: !Array<string>,
+ * }}
+ * @see https://developer.chrome.com/extensions/scripting#type-ContentScriptFilter
+ */
+chrome.scripting.ContentScriptFilter = function() {};
+
+/**
+ * @param {!chrome.scripting.CSSInjection} injection
+ * @param {function(): void=} callback
+ * @return {Promise<void>}
+ * @see https://developer.chrome.com/extensions/scripting#method-insertCSS
+ */
+chrome.scripting.insertCSS = function(injection, callback) {};
+
+/**
+ * @param {!chrome.scripting.CSSInjection} injection
+ * @param {function(): void=} callback
+ * @return {Promise<void>}
+ * @see https://developer.chrome.com/extensions/scripting#method-removeCSS
+ */
+chrome.scripting.removeCSS = function(injection, callback) {};
+
+/**
+ * @typedef {{
+ *   css: (string|undefined),
+ *   files: (!Array<string>|undefined),
+ *   origin: (string|undefined),
+ *   target: (!chrome.scripting.InjectionTarget|undefined),
+ * }}
+ * @see https://developer.chrome.com/extensions/scripting#type-CSSInjection
+ */
+chrome.scripting.CSSInjection;
 
 /**
  * @const
@@ -7135,6 +7456,8 @@ chrome.storage.local;
 /** @type {!StorageArea} */
 chrome.storage.managed;
 
+/** @type {!StorageArea} */
+chrome.storage.session;
 
 /** @type {!StorageChangeEvent} */
 chrome.storage.onChanged;
@@ -7222,7 +7545,7 @@ chrome.system.display.Bounds;
 
 /**
  * @enum {string}
- * @see TODO(user): link to docs once published
+ * @see https://developer.chrome.com/docs/extensions/reference/api/system/display#type-ActiveState
  */
 chrome.system.display.ActiveState = {
   ACTIVE: '',
@@ -12553,10 +12876,10 @@ chrome.userScripts = {};
 
 /**
  * @typedef {{
-*   code: (string|undefined),
-*   file: (string|undefined)
-* }}
-*/
+ *   code: (string|undefined),
+ *   file: (string|undefined)
+ * }}
+ */
 chrome.userScripts.ScriptSource;
 
 /**
@@ -12598,7 +12921,8 @@ chrome.userScripts.configureWorld = function(properties, opt_callback) {};
 
 /**
  * @param {(!chrome.userScripts.UserScriptFilter|undefined)} filter
- * @param {function(!Array<!chrome.userScripts.RegisteredUserScript>): void=} opt_callback
+ * @param {function(!Array<!chrome.userScripts.RegisteredUserScript>): void=}
+ *     opt_callback
  * @return {undefined}
  */
 chrome.userScripts.getScripts = function(filter, opt_callback) {};

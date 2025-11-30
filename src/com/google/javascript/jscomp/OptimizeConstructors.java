@@ -24,7 +24,7 @@ import com.google.javascript.jscomp.OptimizeCalls.ReferenceMap;
 import com.google.javascript.rhino.Node;
 import java.util.ArrayList;
 import java.util.Map;
-import org.jspecify.nullness.Nullable;
+import org.jspecify.annotations.Nullable;
 
 /**
  * Optimize class declarations by removing explicit constructor declarations if the implicit
@@ -57,12 +57,14 @@ import org.jspecify.nullness.Nullable;
  */
 class OptimizeConstructors implements CompilerPass, OptimizeCalls.CallGraphCompilerPass {
   private final AbstractCompiler compiler;
+  private final AstAnalyzer astAnalyzer;
 
   // All constructor definition nodes that are to be removed.
   final ArrayList<Node> removableConstructors = new ArrayList<>();
 
   OptimizeConstructors(AbstractCompiler compiler) {
     this.compiler = checkNotNull(compiler);
+    this.astAnalyzer = compiler.getAstAnalyzer();
   }
 
   @Override
@@ -198,44 +200,35 @@ class OptimizeConstructors implements CompilerPass, OptimizeCalls.CallGraphCompi
   static boolean isAssigningReference(Node n) {
     Node parent = n.getParent();
     Node gparent = parent.getParent();
-    switch (parent.getToken()) {
-      case LET:
-      case CONST:
-      case VAR:
-        return n.hasChildren(); // value assigned
-      case STRING_KEY:
-        return gparent.isObjectPattern();
-      case COMPUTED_PROP:
-        return parent.getLastChild() == n && gparent.isObjectPattern();
-      case ARRAY_PATTERN:
-      case DEFAULT_VALUE: // object or array or function parameter
-      case PARAM_LIST:
-      case OBJECT_REST:
-      case ITER_REST:
-      case INC:
-      case DEC:
-        return true;
-      case FUNCTION:
-      case CLASS:
-      case CATCH:
-        return parent.getFirstChild() == n;
-      case ASSIGN:
-      case ASSIGN_BITOR:
-      case ASSIGN_BITXOR:
-      case ASSIGN_BITAND:
-      case ASSIGN_LSH:
-      case ASSIGN_RSH:
-      case ASSIGN_URSH:
-      case ASSIGN_ADD:
-      case ASSIGN_SUB:
-      case ASSIGN_MUL:
-      case ASSIGN_DIV:
-      case ASSIGN_MOD:
-      case ASSIGN_EXPONENT:
-        return parent.getFirstChild() != n;
-      default:
-        return false;
-    }
+    return switch (parent.getToken()) {
+      case LET, CONST, VAR -> n.hasChildren(); // value assigned
+      case STRING_KEY -> gparent.isObjectPattern();
+      case COMPUTED_PROP -> parent.getLastChild() == n && gparent.isObjectPattern();
+      case ARRAY_PATTERN,
+          DEFAULT_VALUE, // object or array or function parameter
+          PARAM_LIST,
+          OBJECT_REST,
+          ITER_REST,
+          INC,
+          DEC ->
+          true;
+      case FUNCTION, CLASS, CATCH -> parent.getFirstChild() == n;
+      case ASSIGN,
+          ASSIGN_BITOR,
+          ASSIGN_BITXOR,
+          ASSIGN_BITAND,
+          ASSIGN_LSH,
+          ASSIGN_RSH,
+          ASSIGN_URSH,
+          ASSIGN_ADD,
+          ASSIGN_SUB,
+          ASSIGN_MUL,
+          ASSIGN_DIV,
+          ASSIGN_MOD,
+          ASSIGN_EXPONENT ->
+          parent.getFirstChild() != n;
+      default -> false;
+    };
   }
 
   private boolean isClassExtendsExpression(Node n) {
@@ -276,18 +269,21 @@ class OptimizeConstructors implements CompilerPass, OptimizeCalls.CallGraphCompi
 
   private static boolean isDefinitionClassLiteralOrFunction(Node n) {
     switch (n.getToken()) {
-      case FUNCTION:
+      case FUNCTION -> {
         // TODO(b/176208718): ideally this is only return true for normal functions, but it is
         // harmless to include other function types and checking for "normal" function is currently
         // non-trivial.
         return true;
-      case CLASS:
+      }
+      case CLASS -> {
         // `class NameNode {`
         // find the constructor
         Node constructorMemberFunctionDef = NodeUtil.getEs6ClassConstructorMemberFunctionDef(n);
         return constructorMemberFunctionDef != null;
-      default:
+      }
+      default -> {
         return false;
+      }
     }
   }
 
@@ -415,7 +411,7 @@ class OptimizeConstructors implements CompilerPass, OptimizeCalls.CallGraphCompi
 
       if (param.isDefaultValue()
           && param.getFirstChild().isName()
-          && !new AstAnalyzer(compiler, true).mayHaveSideEffects(param.getLastChild())) {
+          && !astAnalyzer.mayHaveSideEffects(param.getLastChild())) {
         // a default parameter whose value is determined to be side-effect free
         continue;
       }

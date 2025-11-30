@@ -55,7 +55,7 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-import org.jspecify.nullness.Nullable;
+import org.jspecify.annotations.Nullable;
 
 /**
  * A builder for FunctionTypes, because FunctionTypes are so ridiculously complex. All methods
@@ -129,7 +129,11 @@ final class FunctionTypeBuilder {
   static final DiagnosticType TYPE_REDEFINITION =
       DiagnosticType.warning(
           "JSC_TYPE_REDEFINITION",
-          "attempted re-definition of type {0}\n" + "found   : {1}\n" + "expected: {2}");
+          """
+          attempted re-definition of type {0}
+          found   : {1}
+          expected: {2}\
+          """);
 
   static final DiagnosticType TEMPLATE_TRANSFORMATION_ON_CLASS =
       DiagnosticType.warning(

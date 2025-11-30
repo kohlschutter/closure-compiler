@@ -23,7 +23,8 @@ import com.google.javascript.rhino.Node;
 import com.google.javascript.rhino.jstype.FunctionType;
 import com.google.javascript.rhino.jstype.JSType;
 import com.google.javascript.rhino.jstype.ObjectType;
-import org.jspecify.nullness.Nullable;
+import com.google.javascript.rhino.jstype.Property;
+import org.jspecify.annotations.Nullable;
 
 /**
  * Sets the {@link JSDocInfo} on all {@code JSType}s, including their properties, using the JSDoc on
@@ -112,25 +113,28 @@ class InferJSDocInfo extends AbstractPostOrderCallback implements CompilerPass {
   @Override
   public void visit(NodeTraversal t, Node n, Node parent) {
     switch (n.getToken()) {
+      case NAME -> {
         // Infer JSDocInfo on types of all type declarations on variables.
-      case NAME:
         inferJSDocForName(n, parent);
         return;
-
-      case STRING_KEY:
-      case GETTER_DEF:
-      case SETTER_DEF:
-      case MEMBER_FUNCTION_DEF:
-      case MEMBER_FIELD_DEF:
+      }
+      case STRING_KEY,
+          GETTER_DEF,
+          SETTER_DEF,
+          MEMBER_FUNCTION_DEF,
+          MEMBER_FIELD_DEF,
+          COMPUTED_PROP,
+          COMPUTED_FIELD_DEF -> {
         inferJSDocForObjectKeyOrClassField(n, parent);
         return;
-
-      case GETPROP:
+      }
+      case GETPROP -> {
         inferJSDocForProperty(n, parent);
         return;
-
-      default:
+      }
+      default -> {
         return;
+      }
     }
   }
 
@@ -206,7 +210,16 @@ class InferJSDocInfo extends AbstractPostOrderCallback implements CompilerPass {
       return;
     }
 
-    String propName = n.getString();
+    Property.Key propName;
+    if (n.isComputedFieldDef() || n.isComputedProp()) {
+      JSType keyType = n.getFirstChild().getJSType();
+      if (keyType == null || !keyType.isKnownSymbolValueType()) {
+        return;
+      }
+      propName = new Property.SymbolKey(keyType.toMaybeKnownSymbolType());
+    } else {
+      propName = new Property.StringKey(n.getString());
+    }
     if (owningType.hasOwnProperty(propName) && owningType.getPropertyJSDocInfo(propName) == null) {
       owningType.setPropertyJSDocInfo(propName, typeDoc);
     }

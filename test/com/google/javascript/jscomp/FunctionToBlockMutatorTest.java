@@ -17,12 +17,11 @@ package com.google.javascript.jscomp;
 
 import static com.google.common.base.Preconditions.checkState;
 import static com.google.common.truth.Truth.assertThat;
-import static com.google.javascript.jscomp.CompilerTestCase.lines;
 import static com.google.javascript.rhino.testing.NodeSubject.assertNode;
 
 import com.google.common.collect.ImmutableList;
 import com.google.javascript.rhino.Node;
-import org.jspecify.nullness.Nullable;
+import org.jspecify.annotations.Nullable;
 import org.junit.Before;
 import org.junit.Test;
 import org.junit.runner.RunWith;
@@ -80,19 +79,20 @@ public final class FunctionToBlockMutatorTest {
     needsDefaultResult = true;
     helperMutate(
         "function foo(){ if (0) {return 0} else {return 1} }; var result=foo();",
-        lines(
-            "{",
-            "  JSCompiler_inline_label_foo_0: {",
-            "    if (0) {",
-            "      result = 0;",
-            "      break JSCompiler_inline_label_foo_0",
-            "    } else {",
-            "      result = 1;",
-            "      break JSCompiler_inline_label_foo_0",
-            "    }",
-            "    result=void 0",
-            "  }",
-            "}"),
+        """
+        {
+          JSCompiler_inline_label_foo_0: {
+            if (0) {
+              result = 0;
+              break JSCompiler_inline_label_foo_0
+            } else {
+              result = 1;
+              break JSCompiler_inline_label_foo_0
+            }
+            result=void 0
+          }
+        }
+        """,
         "foo");
   }
 
@@ -111,7 +111,11 @@ public final class FunctionToBlockMutatorTest {
   @Test
   public void testMutateWithParameters3() {
     // Parameter has side-effects.
-    helperMutate("function foo(a){return a;}; function x() { foo(x++); }", "{x++;}", "foo", null);
+    helperMutate(
+        "function foo(a){return a;}; function x() { foo(x++); }", //
+        "{ x++ }",
+        "foo",
+        null);
   }
 
   @Test
@@ -119,6 +123,16 @@ public final class FunctionToBlockMutatorTest {
     // Parameter has side-effects.
     helperMutate(
         "function foo(a){return a+a;}; foo(x++);",
+        "{var a$jscomp$inline_0 = x++; a$jscomp$inline_0 + a$jscomp$inline_0;}",
+        "foo",
+        null);
+  }
+
+  @Test
+  public void testMutate8_withConstVar() {
+    // Parameter has side-effects.
+    helperMutate(
+        "function foo(/** @const */ a){return a+a;}; foo(x++);",
         "{var a$jscomp$inline_0 = x++; a$jscomp$inline_0 + a$jscomp$inline_0;}",
         "foo",
         null);
@@ -138,17 +152,18 @@ public final class FunctionToBlockMutatorTest {
   public void testMutateInitializeUninitializedVars2() {
     helperMutate(
         "function foo(a) {var b; for(b in c)return a;}; foo(1);",
-        lines(
-            "{",
-            "  JSCompiler_inline_label_foo_2:",
-            "  {",
-            "    var b$jscomp$inline_1;",
-            "    for (b$jscomp$inline_1 in c) {",
-            "      1;",
-            "      break JSCompiler_inline_label_foo_2;",
-            "    }",
-            "  }",
-            "}"),
+        """
+        {
+          JSCompiler_inline_label_foo_2:
+          {
+            var b$jscomp$inline_1;
+            for (b$jscomp$inline_1 in c) {
+              1;
+              break JSCompiler_inline_label_foo_2;
+            }
+          }
+        }
+        """,
         "foo",
         null);
   }
@@ -167,23 +182,31 @@ public final class FunctionToBlockMutatorTest {
   public void testMutateInitializeUninitializedLets2() {
     helperMutate(
         "function foo(a) {for(let b in c)return a;}; foo(1);",
-        lines(
-            "{",
-            "  JSCompiler_inline_label_foo_2:",
-            "  {",
-            "    for (let b$jscomp$inline_1 in c) {",
-            "      1;",
-            "      break JSCompiler_inline_label_foo_2;",
-            "    }",
-            "  }",
-            "}"),
+        """
+        {
+          JSCompiler_inline_label_foo_2:
+          {
+            for (let b$jscomp$inline_1 in c) {
+              1;
+              break JSCompiler_inline_label_foo_2;
+            }
+          }
+        }
+        """,
         "foo",
         null);
   }
 
   @Test
   public void testMutateCallInLoopVars1() {
-    String src = lines("function foo(a) {", "  var B = bar();", "  a;", "};", "foo(1);");
+    String src =
+        """
+        function foo(a) {
+          var B = bar();
+          a;
+        };
+        foo(1);
+        """;
 
     // baseline: outside a loop, the constant remains constant.
     isCallInLoop = false;
@@ -207,23 +230,25 @@ public final class FunctionToBlockMutatorTest {
   @Test
   public void testMutateFunctionDefinitionHoisting() {
     helperMutate(
-        lines(
-            "function foo(a){",
-            "  var b = g(a);",
-            "  function g(c){ return c; }",
-            "  var c = i();",
-            "  function h(){}",
-            "  function i(){}",
-            "}",
-            "foo(1);"),
-        lines(
-            "{",
-            "  var g$jscomp$inline_1 = function(c$jscomp$inline_6) {return c$jscomp$inline_6};",
-            "  var h$jscomp$inline_2 = function(){};",
-            "  var i$jscomp$inline_3 = function(){};",
-            "  var b$jscomp$inline_4 = g$jscomp$inline_1(1);",
-            "  var c$jscomp$inline_5 = i$jscomp$inline_3();",
-            "}"),
+        """
+        function foo(a){
+          var b = g(a);
+          function g(c){ return c; }
+          var c = i();
+          function h(){}
+          function i(){}
+        }
+        foo(1);
+        """,
+        """
+        {
+          var g$jscomp$inline_1 = function(c$jscomp$inline_6) {return c$jscomp$inline_6};
+          var h$jscomp$inline_2 = function(){};
+          var i$jscomp$inline_3 = function(){};
+          var b$jscomp$inline_4 = g$jscomp$inline_1(1);
+          var c$jscomp$inline_5 = i$jscomp$inline_3();
+        }
+        """,
         "foo",
         null);
   }
@@ -251,12 +276,12 @@ public final class FunctionToBlockMutatorTest {
     compiler.parse();
     Node script = compiler.getRoot().getSecondChild().getFirstChild();
 
-    Normalize.createNormalizeForOptimizations(compiler)
-        .process(compiler.getExternsRoot(), compiler.getJsRoot());
-    GatherGetterAndSetterProperties.update(
-        compiler, compiler.getExternsRoot(), compiler.getJsRoot());
-    new PureFunctionIdentifier.Driver(compiler)
-        .process(compiler.getExternsRoot(), compiler.getJsRoot());
+    Node externs = compiler.getExternsRoot();
+    Node js = compiler.getJsRoot();
+
+    Normalize.createNormalizeForOptimizations(compiler).process(externs, js);
+    GatherGetterAndSetterProperties.update(compiler, externs, js);
+    new PureFunctionIdentifier.Driver(compiler).process(externs, js);
 
     final Node fnNode = findFunction(script, fnName);
 
@@ -271,10 +296,15 @@ public final class FunctionToBlockMutatorTest {
               mutator.mutate(fnName, fnNode, n, resultName, needsDefaultResult, isCallInLoop);
           validateSourceInfo(compiler, result);
           assertNode(result).usingSerializer(compiler::toSource).isEqualTo(expected);
+
+          n.replaceWith(result);
+          new ValidityCheck.VerifyConstants(compiler, false).process(externs, js);
+          Normalize.builder(compiler).assertOnChange(true).build().process(externs, js);
+          result.replaceWith(n);
+
           return true;
         };
 
-    compiler.resetUniqueNameId();
     TestCallback test = new TestCallback(fnName, tester);
     NodeTraversal.traverse(compiler, script, test);
   }

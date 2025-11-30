@@ -1,5 +1,5 @@
 /*
- * Copyright 2008 The Closure Compiler Authors
+ * Copyright 2025 The Closure Compiler Authors
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -563,6 +563,16 @@ BaseRenderingContext2D.prototype.getTransform = function() {};
  */
 BaseRenderingContext2D.prototype.createLinearGradient = function(
     x0, y0, x1, y1) {};
+
+/**
+ * @param {number} startAngle
+ * @param {number} x
+ * @param {number} y
+ * @return {!CanvasGradient}
+ * @throws {Error}
+ */
+BaseRenderingContext2D.prototype.createConicGradient = function(
+  startAngle, x, y) {};
 
 /**
  * @param {number} x0
@@ -1687,6 +1697,12 @@ Worker.prototype.webkitPostMessage = function(message, transferOrOptions) {};
 Worker.prototype.onmessage;
 
 /**
+ * @type {?function(!MessageEvent)}
+ * @see https://developer.mozilla.org/docs/Web/API/Worker/messageerror_event
+ */
+Worker.prototype.onmessageerror;
+
+/**
  * Sent when the worker thread encounters an error.
  * @type {?function(!ErrorEvent): void}
  */
@@ -1967,6 +1983,12 @@ HTMLElement.prototype.inert;
 /** @type {boolean} */
 HTMLElement.prototype.spellcheck;
 
+/** @type {?function(!Event): void} */
+HTMLElement.prototype.onbeforematch;
+
+/** @type {?function(!Event): void} */
+HTMLElement.prototype.onpointerrawupdate;
+
 /**
  * @see https://html.spec.whatwg.org/multipage/custom-elements.html#custom-elements-face-example
  * @param {HTMLFormElement} form
@@ -2121,10 +2143,22 @@ HTMLIFrameElement.prototype.sandbox;
 HTMLIFrameElement.prototype.allow;
 
 /**
+ * @type {boolean}
+ * @see https://developer.mozilla.org/en-US/docs/Web/API/HTMLIFrameElement/allowFullscreen
+ */
+HTMLIFrameElement.prototype.allowFullscreen;
+
+/**
  * @type {Window}
  * @see https://developer.mozilla.org/en-US/docs/Web/API/HTMLIFrameElement/contentWindow
  */
 HTMLIFrameElement.prototype.contentWindow;
+
+/**
+ * @return {?Document}
+ * @see https://developer.mozilla.org/docs/Web/API/HTMLIframeElement/getSVGDocument
+ */
+HTMLIFrameElement.prototype.getSVGDocument= function() {};
 
 /** @type {string} */
 HTMLInputElement.prototype.autocomplete;
@@ -2171,6 +2205,12 @@ HTMLInputElement.prototype.valueAsDate;
 /** @type {number} */
 HTMLInputElement.prototype.valueAsNumber;
 
+/** @type {!Array<!FileSystemEntry>} */
+HTMLInputElement.prototype.webkitEntries;
+
+/** @type {boolean} */
+HTMLInputElement.prototype.webkitdirectory;
+
 /**
  * Changes the form control's value by the value given in the step attribute
  * multiplied by opt_n.
@@ -2194,6 +2234,52 @@ HTMLInputElement.prototype.stepUp = function(opt_n) {};
  */
 HTMLInputElement.prototype.showPicker = function() {};
 
+
+/**
+ * @constructor
+ * @implements {EventTarget}
+ */
+function RemotePlayback() {}
+
+/** @type {?function(!Event)} */
+RemotePlayback.prototype.onconnect;
+
+/** @type {?function(!Event)} */
+RemotePlayback.prototype.onconnecting;
+
+/** @type {?function(!Event)} */
+RemotePlayback.prototype.ondisconnect;
+
+/** @type {string} */
+RemotePlayback.prototype.state;
+
+/**
+ * @param {function(boolean):void} callback
+ * @return {!Promise<number>}
+ */
+RemotePlayback.prototype.watchAvailability = function(callback) {};
+
+/**
+ * @param {number} id
+ * @return {!Promise<void>}
+ */
+RemotePlayback.prototype.cancelWatchAvailability = function(id) {};
+
+/**
+ * @return {!Promise<void>}
+ */
+RemotePlayback.prototype.prompt = function() {};
+
+/** @override */
+RemotePlayback.prototype.addEventListener = function(
+  type, listener, opt_useCapture) {};
+
+/** @override */
+RemotePlayback.prototype.dispatchEvent = function(evt) {};
+
+/** @override */
+RemotePlayback.prototype.removeEventListener = function(
+  type, listener, opt_options) {};
 
 /**
  * @constructor
@@ -2331,6 +2417,18 @@ HTMLMediaElement.prototype.buffered;
 /** @type {?MediaStream} */
 HTMLMediaElement.prototype.srcObject;
 
+/** @type {boolean} */
+HTMLMediaElement.prototype.defaultMuted;
+
+/** @type {boolean} */
+HTMLMediaElement.prototype.disableRemotePlayback;
+
+/** @type {!RemotePlayback} */
+HTMLMediaElement.prototype.remote;
+
+/** @type {boolean} */
+HTMLMediaElement.prototype.preservesPitch;
+
 /**
  * Loads the media element.
  * @return {undefined}
@@ -2357,6 +2455,12 @@ HTMLMediaElement.prototype.oncanplaythrough;
 
 /** @type {?function(!Event)} */
 HTMLMediaElement.prototype.ondurationchange;
+
+/** @type {?function(!MediaEncryptedEvent)} */
+HTMLMediaElement.prototype.onencrypted;
+
+/** @type {?function(!Event)} */
+HTMLMediaElement.prototype.onwaitingforkey;
 
 /** @type {?function(!Event)} */
 HTMLMediaElement.prototype.onemptied;
@@ -2417,6 +2521,12 @@ HTMLImageElement.prototype.onload;
 
 /** @type {?function(Event)} */
 HTMLImageElement.prototype.onerror;
+
+/**
+ * @type {string}
+ * @deprecated
+*/
+HTMLImageElement.prototype.lowsrc;
 
 /** @type {string} */
 HTMLMediaElement.prototype.preload;
@@ -2620,6 +2730,12 @@ TextTrack.prototype.addCue = function(cue) {};
 TextTrack.prototype.removeCue = function(cue) {};
 
 /**
+ * @type {?function(!Event)}
+ * @see https://developer.mozilla.org/docs/Web/API/TextTrack/cuechange_event
+ */
+TextTrack.prototype.oncuechange;
+
+/**
  * @const {TextTrackCueList}
  */
 TextTrack.prototype.activeCues;
@@ -2634,6 +2750,30 @@ TextTrack.prototype.cues;
  * @see https://html.spec.whatwg.org/multipage/media.html#dom-texttrack-id-dev
  */
 TextTrack.prototype.id;
+
+/**
+ * @type {string}
+ * @see https://developer.mozilla.org/docs/Web/API/TextTrack/inBandMetadataTrackDispatchType
+ */
+TextTrack.prototype.inBandMetadataTrackDispatchType;
+
+/**
+ * @type {string}
+ * @see https://developer.mozilla.org/docs/Web/API/TextTrack/kind
+ */
+TextTrack.prototype.kind;
+
+/**
+ * @type {string}
+ * @see https://developer.mozilla.org/docs/Web/API/TextTrack/label
+ */
+TextTrack.prototype.label;
+
+/**
+ * @type {string}
+ * @see https://developer.mozilla.org/docs/Web/API/TextTrack/language
+ */
+TextTrack.prototype.language;
 
 /**
  * @type {string}
@@ -2692,6 +2832,14 @@ TextTrackCue.prototype.endTime;
 /** @type {string} */
 TextTrackCue.prototype.text;
 
+/** @type {?function(!Event)} */
+TextTrackCue.prototype.onenter;
+
+/** @type {?function(!Event)} */
+TextTrackCue.prototype.onexit;
+
+/** @type {boolean} */
+TextTrackCue.prototype.pauseOnExit;
 
 
 /**
@@ -2834,6 +2982,9 @@ HTMLVideoElement.prototype.videoWidth;
 
 /** @type {number} */
 HTMLVideoElement.prototype.videoHeight;
+
+/** @type {boolean} */
+HTMLVideoElement.prototype.playsInline;
 
 /** @type {string} */
 HTMLVideoElement.prototype.poster;
@@ -3073,6 +3224,12 @@ MessagePort.prototype.close = function() {};
  */
 MessagePort.prototype.onmessage;
 
+/**
+ * @type {?function(!MessageEvent<*>): void}
+ * @see https://developer.mozilla.org/docs/Web/API/MessagePort/messageerror_event
+ */
+MessagePort.prototype.onmessageerror;
+
 // HTML5 MessageEvent class
 /**
  * @typedef {Window|MessagePort|ServiceWorker}
@@ -3270,10 +3427,55 @@ BroadcastChannel.prototype.removeEventListener = function(
 BroadcastChannel.prototype.onmessage;
 
 /**
+ * @type {?function(!MessageEvent<*>)}
+ * @see https://developer.mozilla.org/docs/Web/API/BroadcastChannel/messageerror_event
+ */
+BroadcastChannel.prototype.onmessageerror;
+
+/**
  * The name of the channel.
  * @type {string}
  */
 BroadcastChannel.prototype.name;
+
+/**
+ * @constructor
+ */
+function AbstractRange() {}
+
+/** @type {boolean} */
+AbstractRange.prototype.collapsed;
+
+/** @type {Node} */
+AbstractRange .prototype.endContainer;
+
+/** @type {number} */
+AbstractRange.prototype.endOffset;
+
+/** @type {Node} */
+AbstractRange.prototype.startContainer;
+
+/** @type {number} */
+AbstractRange.prototype.startOffset;
+
+/**
+ * @typedef {{
+ *   endContainer: Node,
+ *   endOffset: number,
+ *   startContainer: Node,
+ *   startOffset: number,
+ * }}
+ */
+var StaticRangeInit;
+
+/**
+ * StaticRange class.
+ * @constructor
+ * @extends {AbstractRange}
+ * @param {StaticRangeInit} init
+ * @see https://developer.mozilla.org/en-US/docs/Web/API/StaticRange
+ */
+function StaticRange(init) {}
 
 /**
  * HTML5 DataTransfer class.
@@ -3774,6 +3976,9 @@ History.prototype.state;
  */
 History.prototype.scrollRestoration;
 
+/** @type {boolean} */
+Window.prototype.originAgentCluster;
+
 /**
  * Add history property to Window.
  *
@@ -3921,6 +4126,16 @@ PopStateEvent.prototype.state;
  */
 PopStateEvent.prototype.initPopStateEvent = function(
     typeArg, canBubbleArg, cancelableArg, stateArg) {};
+
+/**
+ * Returns true if the user agent performed a visual transition for this
+ * navigation before dispatching this event. iOS edge swipe back buttons are
+ * captured using this property.
+ * As of 2025-02-18, this is not fully supported by all Tier 1 browsers.
+ * See https://developer.mozilla.org/en-US/docs/Web/API/PopStateEvent/hasUAVisualTransition
+ * @type {boolean}
+ */
+PopStateEvent.prototype.hasUAVisualTransition;
 
 /**
  * @see http://www.whatwg.org/specs/web-apps/current-work/#hashchangeevent
@@ -4591,6 +4806,12 @@ HTMLEmbedElement.prototype.src;
  */
 HTMLEmbedElement.prototype.type;
 
+/**
+ * @return {?Document}
+ * @see https://developer.mozilla.org/docs/Web/API/HTMLEmbedElement/getSVGDocument
+ */
+HTMLEmbedElement.prototype.getSVGDocument = function() {};
+
 // Fullscreen APIs.
 
 /**
@@ -4644,6 +4865,12 @@ Document.prototype.designMode;
  * @see http://www.w3.org/TR/2012/WD-fullscreen-20120703/#dom-document-fullscreenenabled
  */
 Document.prototype.fullscreenEnabled;
+
+/**
+ * @type {boolean}
+ * @see https://developer.mozilla.org/docs/Web/API/Document/fullscreen
+ */
+Document.prototype.fullscreen;
 
 /**
  * @type {Element}
@@ -4976,6 +5203,25 @@ ShadowRoot.prototype.styleSheets;
 
 
 /**
+ * @param {!GetHTMLOptions=} options
+ * @return {string}
+ * @see https://developer.mozilla.org/docs/Web/API/ShadowRoot/getHTML
+ */
+ShadowRoot.prototype.getHTML = function(options) {};
+
+/** @type {boolean} */
+ShadowRoot.prototype.clonable;
+
+/** @type {boolean} */
+ShadowRoot.prototype.serializable;
+
+/**
+ * @param {string} html
+ * @return {undefined}
+ */
+ShadowRoot.prototype.setHTMLUnsafe = function(html) {};
+
+/**
  * @typedef {string}
  * @see https://dom.spec.whatwg.org/#enumdef-shadowrootmode
  */
@@ -5004,6 +5250,8 @@ ShadowRootInit.prototype.delegatesFocus;
 /** @type {(undefined|SlotAssignmentMode)} */
 ShadowRootInit.prototype.slotAssignment;
 
+/** @type {(boolean|undefined)} */
+ShadowRootInit.prototype.serializable;
 
 /**
  * @see http://www.w3.org/TR/shadow-dom/#the-content-element
@@ -5289,6 +5537,17 @@ function HTMLTemplateElement() {}
  */
 HTMLTemplateElement.prototype.content;
 
+/** @type {boolean} */
+HTMLTemplateElement.prototype.shadowRootClonable;
+
+/** @type {boolean} */
+HTMLTemplateElement.prototype.shadowRootDelegatesFocus;
+
+/** @type {string} */
+HTMLTemplateElement.prototype.shadowRootMode;
+
+/** @type {boolean} */
+HTMLTemplateElement.prototype.shadowRootSerializable;
 
 /**
  * @type {?Document}
@@ -5310,6 +5569,11 @@ HTMLLinkElement.prototype.as;
  */
 HTMLLinkElement.prototype.crossOrigin;
 
+/** @type {string} */
+HTMLLinkElement.prototype.imageSizes;
+
+/** @type {string} */
+HTMLLinkElement.prototype.imageSrcset;
 
 /**
  * @return {boolean}
@@ -5368,12 +5632,23 @@ HTMLFieldSetElement.prototype.willValidate;
  */
 function RadioNodeList() {}
 
+/** @override */
+RadioNodeList.prototype[Symbol.iterator] = function() {};
+
 /**
  * @type {string}
  * @see https://html.spec.whatwg.org/multipage/infrastructure.html#radionodelist
  */
 RadioNodeList.prototype.value;
 
+/**
+ * @constructor
+ * @extends {HTMLElement}
+ */
+function HTMLDataElement() {}
+
+/** @type {string} */
+HTMLDataElement.prototype.value;
 
 /**
  * @see https://html.spec.whatwg.org/multipage/forms.html#the-datalist-element
@@ -5386,6 +5661,14 @@ function HTMLDataListElement() {}
 /** @type {HTMLCollection<!HTMLOptionElement>} */
 HTMLDataListElement.prototype.options;
 
+/**
+ * @constructor
+ * @extends {HTMLElement}
+ */
+function HTMLTimeElement() {}
+
+/** @type {string} */
+HTMLTimeElement.prototype.dateTime;
 
 /**
  * @return {boolean}
@@ -5515,6 +5798,17 @@ HTMLProgressElement.prototype.labels;
  */
 function HTMLTrackElement() {}
 
+/** @const {number} */
+HTMLTrackElement.prototype.NONE;
+
+/** @const {number} */
+HTMLTrackElement.prototype.LOADING;
+
+/** @const {number} */
+HTMLTrackElement.prototype.LOADED;
+
+/** @const {number} */
+HTMLTrackElement.prototype.ERROR;
 
 /** @type {string} */
 HTMLTrackElement.prototype.kind;
@@ -5795,6 +6089,44 @@ Navigator.prototype.setAppBadge = function(contents) {};
 Navigator.prototype.clearAppBadge = function() {};
 
 /**
+ * @type {?}
+ * @see https://fidoalliance.org/specs/fido-v2.1-ps-20210615/fido-client-to-authenticator-protocol-v2.1-ps-20210615.html#sctn-credProtect-extension
+ */
+Navigator.prototype.credentialProtectionPolicy;
+
+/** @type {?} */
+Navigator.prototype.enforceCredentialProtectionPolicy;
+
+/** @type {?} */
+Navigator.prototype.largeBlob;
+
+/** @type {!NavigatorLogin} */
+Navigator.prototype.login;
+
+/**
+ * @type {boolean}
+ * @see https://developer.mozilla.org/docs/Web/API/Navigator/pdfViewerEnabled
+ */
+Navigator.prototype.pdfViewerEnabled;
+
+/**
+ * @type {?string}
+ */
+Navigator.prototype.doNotTrack;
+
+/**
+ * @interface
+ * @see https://developer.mozilla.org/en-US/docs/Web/API/NavigatorLogin
+ */
+function NavigatorLogin() {}
+
+/**
+ * @param {string} status
+ * @return {!Promise<string>}
+ */
+NavigatorLogin.prototype.setStatus = function(status) {};
+
+/**
  * @constructor
  * @implements NavigatorBadge
  * @implements NavigatorStorage
@@ -5963,6 +6295,12 @@ CustomElementRegistry.prototype.define = function(tagName, klass, options) {};
 CustomElementRegistry.prototype.get = function(tagName) {};
 
 /**
+ * @param {function(new:HTMLElement)} constructor
+ * @return {string|null}
+ */
+CustomElementRegistry.prototype.getName = function(constructor) {};
+
+/**
  * @param {string} tagName
  * @return {!Promise<undefined>}
  */
@@ -5976,6 +6314,9 @@ CustomElementRegistry.prototype.upgrade = function(root) {};
 
 /** @type {!CustomElementRegistry} */
 var customElements;
+
+/** @type {!Navigator} */
+var clientInformation;
 
 /**
  * @constructor
@@ -6225,6 +6566,34 @@ SecurityPolicyViolationEventInit.prototype.columnNumber;
 
 
 /**
+ * @see https://www.w3.org/TR/CSP3/#security-violation-reports
+ * @constructor
+ */
+function CSPViolationReportBody() {}
+
+/** @const {string} */
+CSPViolationReportBody.prototype.blockedURL;
+
+/** @const {string} */
+CSPViolationReportBody.prototype.documentURL;
+
+/** @const {string} */
+CSPViolationReportBody.prototype.effectiveDirective;
+
+/** @const {string} */
+CSPViolationReportBody.prototype.originalPolicy;
+
+/** @const {string} */
+CSPViolationReportBody.prototype.referrer;
+
+/** @const {string} */
+CSPViolationReportBody.prototype.sample;
+
+/** @const {number} */
+CSPViolationReportBody.prototype.statusCode;
+
+
+/**
  * @record
  * @extends {EventInit}
  * @see https://html.spec.whatwg.org/multipage/form-control-infrastructure.html#the-submitevent-interface
@@ -6347,6 +6716,9 @@ ElementInternals.prototype.checkValidity =
         /** @type {!NodeList<!HTMLLabelElement>} */
         ElementInternals.prototype.labels;
 
+/** @type {!CustomStateSet} */
+ElementInternals.prototype.states;
+
 /**
  * @see https://html.spec.whatwg.org/multipage/custom-elements.html#the-elementinternals-interface
  * @record
@@ -6382,3 +6754,141 @@ ValidityStateFlags.prototype.badInput;
 
 /** @type {boolean|undefined} */
 ValidityStateFlags.prototype.customError;
+
+/**
+ * @see https://html.spec.whatwg.org/multipage/custom-elements.html#the-elementinternals-interface
+ * @constructor
+ */
+function CustomStateSet() {}
+
+/**
+ * @param {string} value
+ * @return {void}
+ */
+CustomStateSet.prototype.add = function(value) {};
+
+/**
+ * @return {void}
+ */
+CustomStateSet.prototype.clear = function() {};
+
+/**
+ * @param {string} value
+ * @return {boolean}
+ */
+CustomStateSet.prototype.delete = function(value) {};
+
+/**
+ * @return {!IteratorIterable<!Array<string>>} Where each array has two entries:
+ *     [value, value]
+ * @nosideeffects
+ */
+CustomStateSet.prototype.entries = function() {};
+
+/**
+ * @param {function(this: THIS, string, string, CustomStateSet)} callback
+ * @param {THIS=} opt_thisArg
+ * @this {THIS}
+ * @template THIS
+ */
+CustomStateSet.prototype.forEach = function(callback, opt_thisArg) {};
+
+/**
+ * @param {string} value
+ * @return {boolean}
+ * @nosideeffects
+ */
+CustomStateSet.prototype.has = function(value) {};
+
+/**
+ * @type {number} (readonly)
+ */
+CustomStateSet.prototype.size;
+
+/**
+ * @return {!IteratorIterable<string>}
+ * @nosideeffects
+ */
+CustomStateSet.prototype.keys = function() {};
+
+/**
+ * @return {!IteratorIterable<string>}
+ * @nosideeffects
+ */
+CustomStateSet.prototype.values = function() {};
+
+/**
+ * @return {!IteratorIterable<string>}
+ */
+CustomStateSet.prototype[Symbol.iterator] = function() {};
+
+/**
+ * @see https://drafts.csswg.org/css-view-transitions/#dom-document-startviewtransition
+ * @param {function(): (undefined|!Promise<undefined>)} updateCallback
+ * @return {!ViewTransition}
+ */
+Document.prototype.startViewTransition = function(updateCallback) {};
+
+/**
+ * @see https://drafts.csswg.org/css-view-transitions/#viewtransition
+ * @record
+ * @struct
+ */
+function ViewTransition() {}
+
+/** @const {!Promise<undefined>} */
+ViewTransition.prototype.finished;
+
+/** @const {!Promise<undefined>} */
+ViewTransition.prototype.ready;
+
+/** @const {!Promise<undefined>} */
+ViewTransition.prototype.updateCallbackDone;
+
+/** @return {undefined} */
+ViewTransition.prototype.skipTransition = function() {};
+
+/** @const {!ViewTransitionTypeSet} */
+ViewTransition.prototype.types;
+
+
+/**
+ * @constructor
+ */
+function ViewTransitionTypeSet() {}
+
+/**
+ * @param {function(this: THIS, string, string, CustomStateSet)} callback
+ * @param {THIS=} opt_thisArg
+ * @this {THIS}
+ * @template THIS
+ */
+ViewTransitionTypeSet.prototype.forEach = function(callback, opt_thisArg) {};
+
+/**
+ * @record
+ * @extends {EventInit}
+ * @see https://html.spec.whatwg.org/multipage/interaction.html#toggleeventinit
+ */
+function ToggleEventInit() {}
+
+/** @type {undefined|string} */
+ToggleEventInit.prototype.newState;
+
+/** @type {undefined|string} */
+ToggleEventInit.prototype.oldState;
+
+/**
+ * @param {string} type
+ * @param {ToggleEventInit=} opt_eventInitDict
+ * @see https://html.spec.whatwg.org/multipage/interaction.html#toggleevent
+ * @constructor
+ * @extends {Event}
+ */
+function ToggleEvent(type, opt_eventInitDict) {}
+
+/** @const {string} */
+ToggleEvent.prototype.newState;
+
+/** @const {string} */
+ToggleEvent.prototype.oldState;

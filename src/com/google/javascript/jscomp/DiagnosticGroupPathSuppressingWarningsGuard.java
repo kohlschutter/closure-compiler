@@ -16,7 +16,7 @@
 
 package com.google.javascript.jscomp;
 
-import org.jspecify.nullness.Nullable;
+import org.jspecify.annotations.Nullable;
 
 /**
  * A warnings guard that suppresses warnings for a particular diagnostic group for a file that
@@ -34,7 +34,7 @@ public final class DiagnosticGroupPathSuppressingWarningsGuard extends WarningsG
   /** Does not touch warnings in other paths. */
   @Override
   public @Nullable CheckLevel level(JSError error) {
-    if (error.getSourceName() == null || !error.getSourceName().contains(this.part)) {
+    if (error.sourceName() == null || !error.sourceName().contains(this.part)) {
       return null;
     }
     return this.group.matches(error) ? CheckLevel.OFF : null;

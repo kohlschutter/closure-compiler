@@ -21,7 +21,6 @@ import static com.google.common.base.Preconditions.checkState;
 
 import com.google.common.collect.ImmutableList;
 import com.google.javascript.jscomp.CrossChunkReferenceCollector.TopLevelStatement;
-import com.google.javascript.jscomp.base.format.SimpleFormat;
 import com.google.javascript.jscomp.diagnostic.LogFile;
 import com.google.javascript.rhino.IR;
 import com.google.javascript.rhino.Node;
@@ -36,7 +35,7 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-import org.jspecify.nullness.Nullable;
+import org.jspecify.annotations.Nullable;
 
 /**
  * A compiler pass for moving global variable declarations and assignments to their properties to a
@@ -575,7 +574,7 @@ class CrossChunkCodeMotion implements CompilerPass {
           for (String globalSymbolName : getGlobalSymbolNames()) {
             cccmLog.log(
                 () ->
-                    SimpleFormat.format(
+                    String.format(
                         "Moving DSG for %s from chunk %s to chunk %s",
                         globalSymbolName, currentChunk, preferredChunk));
           }

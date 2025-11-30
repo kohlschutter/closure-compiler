@@ -61,17 +61,26 @@ class PeepholeOptimizationsPass implements CompilerPass {
     beginTraversal();
 
     // Repeat to an internal fixed point.
-    for (List<Node> changedScopeNodes = compiler.getChangedScopeNodesForPass(passName);
+    for (List<Node> changedScopeNodes =
+            compiler.getChangeTracker().getChangedScopeNodesForPass(passName);
         changedScopeNodes == null || !changedScopeNodes.isEmpty();
-        changedScopeNodes = compiler.getChangedScopeNodesForPass(passName)) {
-      NodeTraversal.traverseScopeRoots(
-          compiler, root, changedScopeNodes, new PeepCallback(), false);
+        changedScopeNodes = compiler.getChangeTracker().getChangedScopeNodesForPass(passName)) {
+
+      if (changedScopeNodes == null) {
+        // changedScopeNodes is null if this is the first run of peepholeOptimizationsPass.
+        NodeTraversal.traverse(compiler, root, new PeepCallback());
+      } else {
+        NodeTraversal.traverseScopeRoots(
+            compiler, changedScopeNodes, new PeepCallback(), /* traverseNested= */ false);
+      }
 
       // Cancel the fixed point if requested.
       if (!retraverseOnChange) {
         break;
       }
     }
+
+    endTraversal();
   }
 
   private class PeepCallback extends AbstractPostOrderCallback {
@@ -91,6 +100,13 @@ class PeepholeOptimizationsPass implements CompilerPass {
   private void beginTraversal() {
     for (AbstractPeepholeOptimization optimization : peepholeOptimizations) {
       optimization.beginTraversal(compiler);
+    }
+  }
+
+  /** End the traversal. */
+  private void endTraversal() {
+    for (AbstractPeepholeOptimization optimization : peepholeOptimizations) {
+      optimization.endTraversal();
     }
   }
 }

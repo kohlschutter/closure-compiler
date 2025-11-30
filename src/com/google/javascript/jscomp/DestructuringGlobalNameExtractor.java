@@ -20,11 +20,12 @@ import static com.google.common.base.Preconditions.checkState;
 
 import com.google.javascript.jscomp.GlobalNamespace.AstChange;
 import com.google.javascript.jscomp.GlobalNamespace.Ref;
+import com.google.javascript.jscomp.GlobalNamespace.RefBasedAstChange;
 import com.google.javascript.rhino.IR;
 import com.google.javascript.rhino.Node;
 import com.google.javascript.rhino.Token;
 import java.util.Set;
-import org.jspecify.nullness.Nullable;
+import org.jspecify.annotations.Nullable;
 
 /**
  * Helper for changing the value of an lvalue in a destructuring pattern. Intended for use by {@link
@@ -76,7 +77,7 @@ final class DestructuringGlobalNameExtractor {
             ? stringKey.getOnlyChild().getFirstChild()
             : stringKey.getOnlyChild();
     if (newNodes != null) {
-      newNodes.add(new AstChange(ref.scope, newName));
+      newNodes.add(new RefBasedAstChange(ref, newName));
     }
     Node rvalue = makeNewRvalueForDestructuringKey(stringKey, newName, newNodes, ref);
 
@@ -102,7 +103,7 @@ final class DestructuringGlobalNameExtractor {
       } else {
         newRvalue = originalRvalue.cloneTree();
         if (newNodes != null) {
-          newNodes.add(new AstChange(ref.scope, newRvalue));
+          newNodes.add(new RefBasedAstChange(ref, newRvalue));
         }
       }
       addAfter(lvalueToReassign, newPattern, newRvalue);
@@ -182,7 +183,7 @@ final class DestructuringGlobalNameExtractor {
       // references to it. This ignores getters/setters.
       Node rvalueForSheq = rvalue.cloneTree();
       if (newNodes != null) {
-        newNodes.add(new AstChange(ref.scope, rvalueForSheq));
+        newNodes.add(new RefBasedAstChange(ref, rvalueForSheq));
       }
       // `void 0 === rvalue ? defaultValue : rvalue`
       rvalue =

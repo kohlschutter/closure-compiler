@@ -21,7 +21,6 @@ import static com.google.common.collect.ImmutableMap.toImmutableMap;
 import static com.google.javascript.jscomp.base.JSCompObjects.identical;
 
 import com.google.auto.value.AutoValue;
-import com.google.common.annotations.GwtIncompatible;
 import com.google.common.base.Optional;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
@@ -48,10 +47,9 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 import java.util.function.Function;
 import java.util.function.Supplier;
-import org.jspecify.nullness.Nullable;
+import org.jspecify.annotations.Nullable;
 
 /** Deserializes a list of TypedAst protos into the JSCompiler AST structure. */
-@GwtIncompatible("protobuf.lite")
 public final class TypedAstDeserializer {
 
   private final Mode mode;
@@ -63,6 +61,7 @@ public final class TypedAstDeserializer {
   private final ConcurrentMap<SourceFile, Supplier<Node>> typedAstFilesystem =
       new ConcurrentHashMap<>();
   private final ImmutableSet.Builder<String> externProperties = ImmutableSet.builder();
+  private final ImmutableSet.Builder<String> runtimeLibraries = ImmutableSet.builder();
   private final ArrayList<ScriptNodeDeserializer> syntheticExternsDeserializers = new ArrayList<>();
 
   private TypedAstDeserializer(
@@ -230,7 +229,8 @@ public final class TypedAstDeserializer {
         this.mode.equals(Mode.RUNTIME_LIBRARY_ONLY) || !this.colorPoolBuilder.isPresent()
             ? Optional.absent()
             : Optional.of(colorPoolBuilder.get().build().getRegistry());
-    return DeserializedAst.create(typedAstFilesystem, registry, externProperties.build());
+    return DeserializedAst.create(
+        typedAstFilesystem, registry, externProperties.build(), runtimeLibraries.build());
   }
 
   private void deserializeTypedAst(
@@ -258,6 +258,8 @@ public final class TypedAstDeserializer {
         return;
       }
     }
+
+    this.runtimeLibraries.addAll(typedAstProto.getRuntimeLibraryToInjectList());
 
     // TODO(b/248351234): can we avoid some of this work if the shard only contains weak srcs?
     // one risk: could checks passes synthesize new externProperties even for weak srcs?
@@ -380,7 +382,6 @@ public final class TypedAstDeserializer {
     };
   }
 
-  @GwtIncompatible("ObjectInputStream")
   private static void deserializeTypedAsts(
       InputStream typedAstsStream,
       TypedAstDeserializer deserializer,
@@ -414,6 +415,7 @@ public final class TypedAstDeserializer {
         codedInput.readMessage(typedAstBuilder, ExtensionRegistry.getEmptyRegistry());
         TypedAst typedAst = typedAstBuilder.build();
         typedAstBuilder.clear();
+        codedInput.resetSizeCounter();
         deserializer.deserializeTypedAst(
             typedAst, compiler, resolveSourceMapAnnotations, parseInlineSourceMaps);
       }
@@ -449,12 +451,15 @@ public final class TypedAstDeserializer {
      */
     public abstract @Nullable ImmutableSet<String> getExternProperties();
 
+    public abstract ImmutableSet<String> getRuntimeLibraries();
+
     private static DeserializedAst create(
         ConcurrentMap<SourceFile, Supplier<Node>> filesystem,
         Optional<ColorRegistry> colorRegistry,
-        ImmutableSet<String> externProperties) {
+        ImmutableSet<String> externProperties,
+        ImmutableSet<String> runtimeLibraries) {
       return new AutoValue_TypedAstDeserializer_DeserializedAst(
-          filesystem, colorRegistry, externProperties);
+          filesystem, colorRegistry, externProperties, runtimeLibraries);
     }
   }
 }

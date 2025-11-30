@@ -23,6 +23,7 @@ import static com.google.common.base.Preconditions.checkState;
 import com.google.common.collect.HashMultiset;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Multiset;
+import com.google.errorprone.annotations.CanIgnoreReturnValue;
 import com.google.javascript.jscomp.NodeTraversal.ScopedCallback;
 import com.google.javascript.rhino.JSDocInfo;
 import com.google.javascript.rhino.Node;
@@ -35,7 +36,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.function.Supplier;
-import org.jspecify.nullness.Nullable;
+import org.jspecify.annotations.Nullable;
 
 /**
  * Find all Functions, VARs, and Exception names and make them unique. Specifically, it will not
@@ -68,6 +69,7 @@ class MakeDeclaredNamesUnique extends NodeTraversal.AbstractScopedCallback {
 
     private Builder() {}
 
+    @CanIgnoreReturnValue
     Builder withRenamer(Renamer renamer) {
       this.renamer = renamer;
       return this;
@@ -78,6 +80,7 @@ class MakeDeclaredNamesUnique extends NodeTraversal.AbstractScopedCallback {
      *
      * <p>This option is {@code true} by default.
      */
+    @CanIgnoreReturnValue
     Builder withMarkChanges(boolean markChanges) {
       this.markChanges = markChanges;
       return this;
@@ -90,6 +93,7 @@ class MakeDeclaredNamesUnique extends NodeTraversal.AbstractScopedCallback {
      *
      * <p>This option is {@code false} by default.
      */
+    @CanIgnoreReturnValue
     Builder withAssertOnChange(boolean assertOnChange) {
       this.assertOnChange = assertOnChange;
       return this;
@@ -141,13 +145,8 @@ class MakeDeclaredNamesUnique extends NodeTraversal.AbstractScopedCallback {
   @Override
   public void visit(NodeTraversal t, Node n, Node parent) {
     switch (n.getToken()) {
-      case NAME:
-      case IMPORT_STAR:
-        visitNameOrImportStar(t, n, parent);
-        break;
-
-      default:
-        break;
+      case NAME, IMPORT_STAR -> visitNameOrImportStar(t, n, parent);
+      default -> {}
     }
   }
 

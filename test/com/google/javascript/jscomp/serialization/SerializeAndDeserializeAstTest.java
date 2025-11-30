@@ -16,6 +16,7 @@
 
 package com.google.javascript.jscomp.serialization;
 
+import static com.google.common.base.Preconditions.checkState;
 import static com.google.common.truth.Truth.assertThat;
 import static com.google.javascript.jscomp.testing.ColorSubject.assertThat;
 import static com.google.javascript.rhino.testing.NodeSubject.assertNode;
@@ -23,15 +24,21 @@ import static java.nio.charset.StandardCharsets.UTF_16;
 import static java.nio.charset.StandardCharsets.UTF_8;
 
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
+import com.google.javascript.jscomp.AbstractCompiler;
 import com.google.javascript.jscomp.AstValidator;
 import com.google.javascript.jscomp.Compiler;
 import com.google.javascript.jscomp.CompilerPass;
 import com.google.javascript.jscomp.CompilerTestCase;
+import com.google.javascript.jscomp.NodeTraversal;
+import com.google.javascript.jscomp.PassFactory;
 import com.google.javascript.jscomp.SourceFile;
 import com.google.javascript.jscomp.colors.ColorRegistry;
 import com.google.javascript.jscomp.colors.StandardColors;
+import com.google.javascript.jscomp.parsing.parser.FeatureSet;
 import com.google.javascript.jscomp.serialization.TypedAstDeserializer.DeserializedAst;
+import com.google.javascript.jscomp.testing.TestExternsBuilder;
 import com.google.javascript.rhino.IR;
 import com.google.javascript.rhino.InputId;
 import com.google.javascript.rhino.Node;
@@ -45,10 +52,11 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.attribute.FileTime;
 import java.time.Instant;
+import java.util.Optional;
 import java.util.function.Consumer;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipOutputStream;
-import org.jspecify.nullness.Nullable;
+import org.jspecify.annotations.Nullable;
 import org.junit.Before;
 import org.junit.Rule;
 import org.junit.Test;
@@ -70,10 +78,30 @@ public final class SerializeAndDeserializeAstTest extends CompilerTestCase {
   private boolean includeTypes;
   private boolean resolveSourceMapAnnotations;
   private boolean parseInlineSourceMaps;
+  private boolean checkJsDocEquality;
+  private ImmutableList<String> runtimeLibraries = null;
+  private Optional<PassFactory> preSerializePassFactory = Optional.empty();
 
   @Override
   protected CompilerPass getProcessor(Compiler compiler) {
-    return new SerializeTypedAstPass(compiler, consumer, SerializationOptions.SKIP_DEBUG_INFO);
+    CompilerPass serializationPass =
+        new SerializeTypedAstPass(
+            compiler,
+            consumer,
+            SerializationOptions.builder()
+                .setIncludeDebugInfo(false)
+                .setRuntimeLibraries(this.runtimeLibraries)
+                .build());
+    if (preSerializePassFactory.isEmpty()) {
+      return serializationPass;
+    }
+    return new CompilerPass() {
+      @Override
+      public void process(Node externs, Node root) {
+        preSerializePassFactory.get().create(compiler).process(externs, root);
+        serializationPass.process(externs, root);
+      }
+    };
   }
 
   @Override
@@ -84,8 +112,10 @@ public final class SerializeAndDeserializeAstTest extends CompilerTestCase {
     enableCreateModuleMap();
     enableSourceInformationAnnotator();
     this.includeTypes = true;
+    this.checkJsDocEquality = true;
     this.resolveSourceMapAnnotations = true;
     this.parseInlineSourceMaps = true;
+    this.runtimeLibraries = ImmutableList.of();
   }
 
   @Test
@@ -139,6 +169,11 @@ public final class SerializeAndDeserializeAstTest extends CompilerTestCase {
   }
 
   @Test
+  public void testObjectWithComputedGetter() {
+    testSame("let obj = {get [x]() {}};");
+  }
+
+  @Test
   public void testObjectWithSetter() {
     testSame("let obj = {set x(value) {}};");
   }
@@ -146,6 +181,11 @@ public final class SerializeAndDeserializeAstTest extends CompilerTestCase {
   @Test
   public void testObjectWithQuotedSetter() {
     testSame("let obj = {set 'x'(value) {}};");
+  }
+
+  @Test
+  public void testObjectWithComputedSetter() {
+    testSame("let obj = {set [x](value) {}};");
   }
 
   @Test
@@ -222,88 +262,130 @@ public final class SerializeAndDeserializeAstTest extends CompilerTestCase {
 
   @Test
   public void testClassDeclarationWithMethods() {
-    testSame(lines("class Foo {", "  a() {}", "  get c() {}", "  set d(x) {}", "}"));
-
-    // Type checking will report computed property accesses as errors for a class,
-    // so disable it for this case which contains several.
-    disableTypeCheck();
     testSame(
-        lines(
-            "class Foo {",
-            "  a() {}",
-            "  'b'() {}",
-            "  get c() {}",
-            "  set d(x) {}",
-            "  ['e']() {}",
-            "}"));
+        """
+        class Foo {
+          a() {}
+          get c() {}
+          set d(x) {}
+        }
+        """);
+
+    this.checkJsDocEquality = false; // @unrestricted
+    testSame(
+        """
+        /** @unrestricted */
+        class Foo {
+          a() {}
+          'b'() {}
+          get c() {}
+          set d(x) {}
+          ['e']() {}
+        }
+        """);
+  }
+
+  @Test
+  public void testClassDeclarationWithComputedGetter() {
+    this.checkJsDocEquality = false; // @dict
+    testSame(
+        """
+        /** @dict */
+        class Foo {
+          get ['a']() {}
+        }
+        """);
+  }
+
+  @Test
+  public void testClassDeclarationWithComputedSetter() {
+    this.checkJsDocEquality = false; // @dict
+    testSame(
+        """
+        /** @dict */
+        class Foo {
+          set ['a'](val) {}
+        }
+        """);
   }
 
   @Test
   public void testClassDeclarationWithFields() {
-    testSame(lines("class Foo {", "  a = 1;", "  d;", "}"));
+    testSame(
+        """
+        class Foo {
+          a = 1;
+          d;
+        }
+        """);
 
     // Type checking will report computed property accesses as errors for a class,
     // so disable it for this case which contains several.
     disableTypeCheck();
     testSame(
-        lines(
-            "class Foo {",
-            "  a = 1;",
-            "  'b' = 4;",
-            "  static ['c'] = 'hi';",
-            "  d;",
-            "  ['e'];",
-            "  1 = 2;",
-            "}"));
+        """
+        class Foo {
+          a = 1;
+          'b' = 4;
+          static ['c'] = 'hi';
+          d;
+          ['e'];
+          1 = 2;
+        }
+        """);
   }
 
   @Test
   public void testEmptyClassStaticBlock() {
     testSame(
-        lines(
-            "class Foo {", //
-            "  static {",
-            "  }",
-            "}"));
+        """
+        class Foo {
+          static {
+          }
+        }
+        """);
   }
 
   @Test
   public void testClassStaticBlock_variables() {
     testSame(
-        lines(
-            "class Foo {", //
-            "  static {",
-            "    this.x=1;",
-            "    let y =2;",
-            "    var z =3;",
-            "  }",
-            "}"));
+        """
+        class Foo {
+          static {
+            this.x=1;
+            let y =2;
+            var z =3;
+          }
+        }
+        """);
   }
 
   @Test
   public void testClassStaticBlock_function() {
     testSame(
-        lines(
-            "class Foo {", //
-            "  static {",
-            "    function x() {",
-            "    }",
-            "  }",
-            "}"));
+        """
+        class Foo {
+          static {
+            function x() {
+            }
+          }
+        }
+        """);
   }
 
   @Test
   public void testMultipleClassStaticBlocks() {
     testSame(
-        lines(
-            "class Foo {", //
-            "  static {",
-            "    this.x=1;",
-            "  }",
-            "  static {",
-            "    this.y=2;",
-            "  }",
-            "}"));
+        """
+        class Foo {
+          static {
+            this.x=1;
+          }
+          static {
+            this.y=2;
+          }
+        }
+        """);
   }
 
   @Test
@@ -411,13 +493,14 @@ public final class SerializeAndDeserializeAstTest extends CompilerTestCase {
   @Test
   public void testInlineSourceMaps() {
     String sourceMapTestCode =
-        lines(
-            "var X = (function () {",
-            "    function X(input) {",
-            "        this.y = input;",
-            "    }",
-            "    return X;",
-            "}());");
+        """
+        var X = (function () {
+            function X(input) {
+                this.y = input;
+            }
+            return X;
+        }());
+        """;
     String sourceMappingURLComment = "//# sourceMappingURL=" + BASE64_PREFIX + ENCODED_SOURCE_MAP;
     ;
     String code = sourceMapTestCode + "\n" + sourceMappingURLComment;
@@ -432,32 +515,34 @@ public final class SerializeAndDeserializeAstTest extends CompilerTestCase {
     // Sourcemap URLs should be a base64 encoded data url, not the name of a .js.map file.
     // If we see a .js.map file, we will not serialize it.
     String sourceMapTestCode =
-        lines(
-            "var X = (function () {",
-            "    function X(input) {",
-            "        this.y = input;",
-            "    }",
-            "    return X;",
-            "}());");
+        """
+        var X = (function () {
+            function X(input) {
+                this.y = input;
+            }
+            return X;
+        }());
+        """;
     String sourceMappingURL = "foo.js.map";
     String sourceMappingURLComment = "//# sourceMappingURL=" + sourceMappingURL;
     String code = sourceMapTestCode + "\n" + sourceMappingURLComment;
 
     Result result = testAndReturnResult(srcs(code), expected(code));
-    assertThat(result.compiler.getBase64SourceMapContents("testcode")).isEqualTo(null);
+    assertThat(result.compiler.getBase64SourceMapContents("testcode")).isNull();
   }
 
   @Test
   public void testSourceMapsWithoutResolvingSourceMapAnnotations() {
     this.resolveSourceMapAnnotations = false;
     String sourceMapTestCode =
-        lines(
-            "var X = (function () {",
-            "    function X(input) {",
-            "        this.y = input;",
-            "    }",
-            "    return X;",
-            "}());");
+        """
+        var X = (function () {
+            function X(input) {
+                this.y = input;
+            }
+            return X;
+        }());
+        """;
     String sourceMappingURLComment = "//# sourceMappingURL=" + BASE64_PREFIX + ENCODED_SOURCE_MAP;
     ;
     String code = sourceMapTestCode + "\n" + sourceMappingURLComment;
@@ -471,13 +556,14 @@ public final class SerializeAndDeserializeAstTest extends CompilerTestCase {
   public void testSourceMapsWithoutParsingInlineSourceMaps() {
     this.parseInlineSourceMaps = false;
     String sourceMapTestCode =
-        lines(
-            "var X = (function () {",
-            "    function X(input) {",
-            "        this.y = input;",
-            "    }",
-            "    return X;",
-            "}());");
+        """
+        var X = (function () {
+            function X(input) {
+                this.y = input;
+            }
+            return X;
+        }());
+        """;
     String sourceMappingURLComment = "//# sourceMappingURL=" + BASE64_PREFIX + ENCODED_SOURCE_MAP;
     ;
     String code = sourceMapTestCode + "\n" + sourceMappingURLComment;
@@ -485,7 +571,7 @@ public final class SerializeAndDeserializeAstTest extends CompilerTestCase {
     Result result = testAndReturnResult(srcs(code), expected(code));
     // Source map is registered when `parseInlineSourceMaps = false`, but we won't try to
     // parse it as a Base64 encoded source map.
-    assertThat(result.compiler.getBase64SourceMapContents("testcode")).isEqualTo(null);
+    assertThat(result.compiler.getBase64SourceMapContents("testcode")).isNull();
   }
 
   @Test
@@ -495,19 +581,20 @@ public final class SerializeAndDeserializeAstTest extends CompilerTestCase {
     // sourcemaps). Sourcemap URLs should be a base64 encoded data url, not a path to the
     // sourcemap file. If we see a path, we will not serialize anything.
     String sourceMapTestCode =
-        lines(
-            "var X = (function () {",
-            "    function X(input) {",
-            "        this.y = input;",
-            "    }",
-            "    return X;",
-            "}());");
+        """
+        var X = (function () {
+            function X(input) {
+                this.y = input;
+            }
+            return X;
+        }());
+        """;
     String sourceMappingURLPath = "directory/foo.js.map";
     String sourceMappingURLComment = "//# sourceMappingURL=" + sourceMappingURLPath;
     String code = sourceMapTestCode + "\n" + sourceMappingURLComment;
 
     Result result = testAndReturnResult(srcs(code), expected(code));
-    assertThat(result.compiler.getBase64SourceMapContents("testcode")).isEqualTo(null);
+    assertThat(result.compiler.getBase64SourceMapContents("testcode")).isNull();
   }
 
   @Test
@@ -573,11 +660,13 @@ public final class SerializeAndDeserializeAstTest extends CompilerTestCase {
 
     Node newRoot =
         testAndReturnResult(
+                externs(new TestExternsBuilder().addClosureExterns().build()),
                 srcs("goog.module('a.b.c'); const x = 0;"),
                 expected(
-                    lines(
-                        "/** @const */ var module$exports$a$b$c = {};",
-                        "const module$contents$a$b$c_x = 0;")))
+                    """
+                    /** @const */ var module$exports$a$b$c = {};
+                    const module$contents$a$b$c_x = 0;
+                    """))
             .sourceRoot
             .getFirstChild();
 
@@ -656,7 +745,7 @@ public final class SerializeAndDeserializeAstTest extends CompilerTestCase {
 
     assertThat(scriptA.getStaticSourceFile()).isInstanceOf(SourceFile.class);
     assertThat(((SourceFile) scriptA.getStaticSourceFile()).getCode()).isEqualTo("const a = 0;");
-    assertThat(((SourceFile) scriptA.getStaticSourceFile()).getName()).isEqualTo(a.getName());
+    assertThat(scriptA.getStaticSourceFile().getName()).isEqualTo(a.getName());
   }
 
   @Test
@@ -669,11 +758,12 @@ public final class SerializeAndDeserializeAstTest extends CompilerTestCase {
             // the injected "base" library is merged into the first file's script. ensure that
             // SourceFiles are wired up correctly.
             expected(
-                lines(
-                    "/** @const */ var $jscomp = $jscomp || {};",
-                    "/** @const */",
-                    "$jscomp.scope = {};",
-                    "0;")));
+                """
+                /** @const */ var $jscomp = $jscomp || {};
+                /** @const */
+                $jscomp.scope = {};
+                0;
+                """));
 
     Node script = result.sourceRoot.getFirstChild();
     assertNode(script).hasToken(Token.SCRIPT);
@@ -694,16 +784,119 @@ public final class SerializeAndDeserializeAstTest extends CompilerTestCase {
     Result result =
         this.testAndReturnResult(
             externs(
-                lines(
-                    "class Foo {", //
-                    // Ensure JSDoc properties are included (b/180424427)
-                    "  /** @param {{arg: string}} x */",
-                    "  method(x) { }",
-                    "}")),
+                """
+                class Foo {
+                // Ensure JSDoc properties are included (b/180424427)
+                  /** @param {{arg: string}} x */
+                  method(x) { }
+                }
+                """),
             srcs(""),
             expected(""));
 
     assertThat(result.ast.getExternProperties()).containsAtLeast("method", "arg");
+  }
+
+  @Test
+  public void includesShadowedCode() throws IOException {
+    preSerializePassFactory =
+        Optional.of(
+            PassFactory.builder()
+                .setName("createShadow")
+                .setInternalFactory(
+                    (AbstractCompiler c) ->
+                        new CompilerPass() {
+                          @Override
+                          public void process(Node externs, Node root) {
+                            Node functionToBeShadowed =
+                                root.getFirstFirstChild().getFirstFirstChild();
+                            checkState(functionToBeShadowed.isFunction());
+
+                            Node name = IR.name("SHADOW");
+                            functionToBeShadowed.replaceWith(name);
+
+                            Node shadowRoot =
+                                IR.root(IR.script(IR.exprResult(functionToBeShadowed)));
+                            name.setClosureUnawareShadow(shadowRoot);
+
+                            c.reportChangeToEnclosingScope(name);
+                          }
+                        })
+                .build());
+    Result result =
+        testAndReturnResult(
+            srcs(
+                """
+                (function() {
+                  window['foo'] = 5;
+                })();
+                """),
+            expected("SHADOW();"));
+    assertThat(result.compiler.getErrors()).isEmpty();
+
+    // Also validate that the content of the shadow is actually correct
+    Node shadowHost = result.sourceRoot.getFirstFirstChild().getFirstFirstChild();
+
+    Node shadowedContent = shadowHost.getClosureUnawareShadow();
+    IR.root(shadowedContent); // The script root also needs a top-level root parent.
+
+    Node expectedShadowContent =
+        this.parseExpectedJs(
+            """
+            (function() {
+              window['foo'] = 5;
+            })
+            """);
+    assertNode(shadowedContent).isEqualIncludingJsDocTo(expectedShadowContent);
+
+    assertThat(result.compiler.toSource(result.sourceRoot))
+        .isEqualTo("(function(){window[\"foo\"]=5})()");
+
+    NodeTraversal.Callback cb =
+        new NodeTraversal.AbstractPostOrderCallback() {
+          @Override
+          public void visit(NodeTraversal t, Node n, Node parent) {
+            assertThat(n.getIsInClosureUnawareSubtree()).isTrue();
+            if (parent != null) {
+              assertThat(Node.validateMemorySensitivePropertyGuarantees(n, true, parent, true))
+                  .isTrue();
+            }
+          }
+        };
+
+    NodeTraversal.traverse(result.compiler, shadowedContent, cb);
+  }
+
+  @Test
+  public void includesRuntimeLibraryPaths() throws IOException {
+    enableGatherExternProperties();
+    this.runtimeLibraries = ImmutableList.of("base", "es6/string");
+
+    Result result = this.testAndReturnResult(externs(""), srcs(""), expected(""));
+
+    assertThat(result.ast.getRuntimeLibraries()).containsExactly("base", "es6/string");
+  }
+
+  @Test
+  public void wellKnownSymbolsBecomeSymbol() throws IOException {
+    enableTypeCheck();
+    Result result =
+        testAndReturnResult(
+            externs(
+                """
+                /** @type {symbol} */
+                Symbol.foobar;
+                """),
+            srcs("Symbol.foobar"),
+            expected("Symbol.foobar"));
+
+    Node newScript = result.sourceRoot.getFirstChild();
+    checkState(newScript.isScript(), newScript);
+
+    Node foobar = newScript.getFirstFirstChild();
+
+    assertNode(foobar).matchesQualifiedName("Symbol.foobar");
+    assertThat(foobar.getColor()).isSameInstanceAs(StandardColors.SYMBOL);
   }
 
   @Override
@@ -728,10 +921,10 @@ public final class SerializeAndDeserializeAstTest extends CompilerTestCase {
     InputStream serializedStream = toInputStream(externs, code, expected);
     Compiler serializingCompiler = getLastCompiler();
 
-    ImmutableList<SourceFile> externFiles =
-        collectSourceFilesFromScripts(serializingCompiler.getRoot().getFirstChild());
-    ImmutableList<SourceFile> codeFiles =
-        collectSourceFilesFromScripts(serializingCompiler.getRoot().getSecondChild());
+    Node oldRoot = serializingCompiler.getRoot();
+
+    ImmutableList<SourceFile> externFiles = collectSourceFilesFromScripts(oldRoot.getFirstChild());
+    ImmutableList<SourceFile> codeFiles = collectSourceFilesFromScripts(oldRoot.getSecondChild());
 
     // NOTE: We need a fresh compiler instance in which to deserialize, because:
     // 1. This is a better representation of what will happen in production use.
@@ -773,13 +966,55 @@ public final class SerializeAndDeserializeAstTest extends CompilerTestCase {
       script.setInputId(new InputId(source.getName()));
       newSourceRoot.addChildToBack(script);
     }
+    Node newRoot = IR.root(newExternsRoot, newSourceRoot);
 
     Node expectedRoot = this.parseExpectedJs(expected);
-    assertNode(newSourceRoot).isEqualIncludingJsDocTo(expectedRoot);
+    if (checkJsDocEquality) {
+      assertNode(newSourceRoot).isEqualIncludingJsDocTo(expectedRoot);
+    } else {
+      assertNode(newSourceRoot).isEqualTo(expectedRoot);
+    }
+
     new AstValidator(deserializingCompiler, /* validateScriptFeatures= */ true)
-        .validateRoot(IR.root(newExternsRoot, newSourceRoot));
+        .validateRoot(newRoot);
+
+    assertFeatureSetsOfScriptsMatch(oldRoot, newRoot);
+
     consumer = null;
-    return new Result(ast, registry, newExternsRoot, newSourceRoot, deserializingCompiler);
+    return new Result(ast, registry, newSourceRoot, deserializingCompiler);
+  }
+
+  private void assertFeatureSetsOfScriptsMatch(Node oldRoot, Node newRoot) {
+    ImmutableMap<SourceFile, FeatureSet> featureSetsOfOldScripts = getFeatureSetsOfScripts(oldRoot);
+    ImmutableMap<SourceFile, FeatureSet> featureSetsOfNewScripts = getFeatureSetsOfScripts(newRoot);
+    assertThat(featureSetsOfNewScripts.keySet()).isEqualTo(featureSetsOfOldScripts.keySet());
+    for (SourceFile sourceFile : featureSetsOfOldScripts.keySet()) {
+      FeatureSet oldFeatureSet = featureSetsOfOldScripts.get(sourceFile);
+      FeatureSet newFeatureSet = featureSetsOfNewScripts.get(sourceFile);
+      checkState(
+          oldFeatureSet.equals(newFeatureSet),
+          "Feature sets of scripts do not match for file %s. Old: %s, New: %s",
+          sourceFile.getName(),
+          oldFeatureSet,
+          newFeatureSet);
+    }
+  }
+
+  private ImmutableMap<SourceFile, FeatureSet> getFeatureSetsOfScripts(Node root) {
+    ImmutableMap.Builder<SourceFile, FeatureSet> builder = ImmutableMap.builder();
+    Node externsRoot = root.getFirstChild();
+    Node sourceRoot = root.getSecondChild();
+    for (Node script = externsRoot.getFirstChild(); script != null; script = script.getNext()) {
+      checkState(script.isScript());
+      builder.put(
+          (SourceFile) script.getStaticSourceFile(), (FeatureSet) script.getProp(Node.FEATURE_SET));
+    }
+    for (Node script = sourceRoot.getFirstChild(); script != null; script = script.getNext()) {
+      checkState(script.isScript());
+      builder.put(
+          (SourceFile) script.getStaticSourceFile(), (FeatureSet) script.getProp(Node.FEATURE_SET));
+    }
+    return builder.buildOrThrow();
   }
 
   private ImmutableList<SourceFile> collectSourceFilesFromScripts(Node root) {
@@ -796,12 +1031,7 @@ public final class SerializeAndDeserializeAstTest extends CompilerTestCase {
     final Node sourceRoot;
     final Compiler compiler;
 
-    Result(
-        DeserializedAst ast,
-        ColorRegistry registry,
-        Node externRoot,
-        Node sourceRoot,
-        Compiler compiler) {
+    Result(DeserializedAst ast, ColorRegistry registry, Node sourceRoot, Compiler compiler) {
       this.ast = ast;
       this.registry = registry;
       this.sourceRoot = sourceRoot;

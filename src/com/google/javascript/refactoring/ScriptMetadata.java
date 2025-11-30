@@ -30,7 +30,7 @@ import com.google.javascript.rhino.Node;
 import com.google.javascript.rhino.QualifiedName;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
-import org.jspecify.nullness.Nullable;
+import org.jspecify.annotations.Nullable;
 
 /**
  * A summary of a script for use during fixes.
@@ -129,19 +129,17 @@ public final class ScriptMetadata {
 
     private void updateSupportsRequireAlias(Node n) {
       switch (n.getToken()) {
-        case MODULE_BODY:
-          break;
-
-        case CALL:
+        case MODULE_BODY -> {}
+        case CALL -> {
           if (n.getChildCount() != 2
               || !GOOG_MODULE.matches(n.getFirstChild())
               || !n.getSecondChild().isStringLit()) {
             return;
           }
-          break;
-
-        default:
+        }
+        default -> {
           return;
+        }
       }
 
       this.toFill.supportsRequireAliases = true;

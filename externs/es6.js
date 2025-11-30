@@ -30,31 +30,31 @@
  */
 
 /**
- * TODO(b/142881197): UNUSED_RETURN_T and UNUSED_NEXT_T are not yet used for
- * anything. https://github.com/google/closure-compiler/issues/3489
+ * TODO(b/142881197): TReturn and TNext are not yet used for anything.
+ * https://github.com/google/closure-compiler/issues/3489
  * @interface
  * @see https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Generator
- * @extends {IteratorIterable<VALUE>}
- * @template VALUE, UNUSED_RETURN_T, UNUSED_NEXT_T
+ * @extends {IteratorIterable<T, ?, *>}
+ * @template T, TReturn, TNext
  */
 function Generator() {}
 
 /**
  * @param {?=} opt_value
- * @return {!IIterableResult<VALUE>}
+ * @return {!IIterableResult<T>}
  * @override
  */
 Generator.prototype.next = function(opt_value) {};
 
 /**
- * @param {VALUE} value
- * @return {!IIterableResult<VALUE>}
+ * @param {T} value
+ * @return {!IIterableResult<T>}
  */
 Generator.prototype.return = function(value) {};
 
 /**
  * @param {?} exception
- * @return {!IIterableResult<VALUE>}
+ * @return {!IIterableResult<T>}
  */
 Generator.prototype.throw = function(exception) {};
 
@@ -407,6 +407,7 @@ ArrayBuffer.isView = function(arg) {};
 
 /**
  * @constructor
+ * @template TArrayBuffer (unused)
  */
 function ArrayBufferView() {}
 
@@ -445,12 +446,18 @@ SharedArrayBuffer.prototype.slice = function(begin, end) {};
  */
 var BufferSource;
 
+/**
+ * @typedef {!ArrayBuffer|!ArrayBufferView}
+ */
+var AllowSharedBufferSource;
+
 
 /**
  * @constructor
  * @implements {IArrayLike<number>}
  * @implements {Iterable<number>}
  * @extends {ArrayBufferView}
+ * @template TArrayBuffer (unused)
  */
 function TypedArray() {};
 
@@ -703,6 +710,39 @@ TypedArray.prototype.subarray = function(begin, opt_end) {};
 TypedArray.prototype.values = function() {};
 
 /**
+ * NOTE: this is an ES2023 extern.
+ * @return {THIS}
+ * @this {THIS}
+ * @template THIS
+ * @nosideeffects
+ * @see https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/TypedArray/toReversed
+ */
+TypedArray.prototype.toReversed = function() {};
+
+/**
+ * NOTE: this is an ES2023 extern.
+ * @param {function(number, number): number=} compareFn
+ * @return {THIS}
+ * @this {THIS}
+ * @template THIS
+ * @nosideeffects
+ * @see https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/TypedArray/toSorted
+ */
+TypedArray.prototype.toSorted = function(compareFn) {};
+
+/**
+ * NOTE: this is an ES2023 extern.
+ * @param {number} index
+ * @param {number} value
+ * @return {THIS}
+ * @this {THIS}
+ * @template THIS
+ * @nosideeffects
+ * @see https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/TypedArray/with
+ */
+TypedArray.prototype.with = function(index, value) {};
+
+/**
  * @return {string}
  * @nosideeffects
  * @see https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/TypedArray/toLocaleString
@@ -729,6 +769,7 @@ TypedArray.prototype[Symbol.iterator] = function() {};
  *         for readability and detection of programmer errors.
  * @param {number=} opt_byteOffset
  * @param {number=} opt_length
+ * @template TArrayBuffer (unused)
  * @constructor
  * @extends {TypedArray}
  * @throws {Error}
@@ -775,6 +816,7 @@ Int8Array.of = function(var_args) {};
  *         for readability and detection of programmer errors.
  * @param {number=} opt_byteOffset
  * @param {number=} opt_length
+ * @template TArrayBuffer (unused)
  * @constructor
  * @extends {TypedArray}
  * @throws {Error}
@@ -811,6 +853,7 @@ Uint8Array.of = function(var_args) {};
  *         for readability and detection of programmer errors.
  * @param {number=} opt_byteOffset
  * @param {number=} opt_length
+ * @template TArrayBuffer (unused)
  * @constructor
  * @extends {TypedArray}
  * @throws {Error}
@@ -856,6 +899,7 @@ var CanvasPixelArray;
  *         for readability and detection of programmer errors.
  * @param {number=} opt_byteOffset
  * @param {number=} opt_length
+ * @template TArrayBuffer (unused)
  * @constructor
  * @extends {TypedArray}
  * @throws {Error}
@@ -892,6 +936,7 @@ Int16Array.of = function(var_args) {};
  *         for readability and detection of programmer errors.
  * @param {number=} opt_byteOffset
  * @param {number=} opt_length
+ * @template TArrayBuffer (unused)
  * @constructor
  * @extends {TypedArray}
  * @throws {Error}
@@ -928,6 +973,7 @@ Uint16Array.of = function(var_args) {};
  *         for readability and detection of programmer errors.
  * @param {number=} opt_byteOffset
  * @param {number=} opt_length
+ * @template TArrayBuffer (unused)
  * @constructor
  * @extends {TypedArray}
  * @throws {Error}
@@ -964,6 +1010,7 @@ Int32Array.of = function(var_args) {};
  *         for readability and detection of programmer errors.
  * @param {number=} opt_byteOffset
  * @param {number=} opt_length
+ * @template TArrayBuffer (unused)
  * @constructor
  * @extends {TypedArray}
  * @throws {Error}
@@ -1000,6 +1047,7 @@ Uint32Array.of = function(var_args) {};
  *         for readability and detection of programmer errors.
  * @param {number=} opt_byteOffset
  * @param {number=} opt_length
+ * @template TArrayBuffer (unused)
  * @constructor
  * @extends {TypedArray}
  * @throws {Error}
@@ -1036,6 +1084,7 @@ Float32Array.of = function(var_args) {};
  *         for readability and detection of programmer errors.
  * @param {number=} opt_byteOffset
  * @param {number=} opt_length
+ * @template TArrayBuffer (unused)
  * @constructor
  * @extends {TypedArray}
  * @throws {Error}
@@ -1072,6 +1121,7 @@ Float64Array.of = function(var_args) {};
  *         for readability and detection of programmer errors.
  * @param {number=} byteOffset
  * @param {number=} bufferLength
+ * @template TArrayBuffer (unused)
  * @constructor
  * @extends {TypedArray}
  * @throws {Error}
@@ -1099,6 +1149,39 @@ BigInt64Array.from = function(source, mapFn, thisArg) {};
  */
 BigInt64Array.of = function(var_args) {};
 
+/**
+ * @param {(function(bigint, bigint) : number)=} opt_compareFunction
+ * @return {THIS}
+ * @this {THIS}
+ * @template THIS
+ * @override
+ * @suppress {checkTypes} The types are specialized in this override.
+ * @see https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/TypedArray/sort
+ */
+BigInt64Array.prototype.sort = function(opt_compareFunction) {};
+
+/**
+ * NOTE: this is an ES2023 extern.
+ * @param {function(bigint, bigint): number=} compareFn
+ * @return {!BigInt64Array}
+ * @nosideeffects
+ * @override
+ * @suppress {checkTypes} The types are specialized in this override.
+ * @see https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/TypedArray/toSorted
+ */
+BigInt64Array.prototype.toSorted = function(compareFn) {};
+
+/**
+ * NOTE: this is an ES2023 extern.
+ * @param {number} index
+ * @param {bigint} value
+ * @return {!BigInt64Array}
+ * @nosideeffects
+ * @override
+ * @suppress {checkTypes} The types are specialized in this override.
+ * @see https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/TypedArray/with
+ */
+BigInt64Array.prototype.with = function(index, value) {};
 
 /**
  * @param {number|ArrayBufferView|Array<bigint>|ArrayBuffer|SharedArrayBuffer}
@@ -1108,6 +1191,7 @@ BigInt64Array.of = function(var_args) {};
  *         for readability and detection of programmer errors.
  * @param {number=} byteOffset
  * @param {number=} bufferLength
+ * @template TArrayBuffer (unused)
  * @constructor
  * @extends {TypedArray}
  * @throws {Error}
@@ -1134,6 +1218,40 @@ BigUint64Array.from = function(source, mapFn, thisArg) {};
  * @see https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/TypedArray/of
  */
 BigUint64Array.of = function(var_args) {};
+
+/**
+ * @param {(function(bigint, bigint) : number)=} opt_compareFunction
+ * @return {THIS}
+ * @this {THIS}
+ * @template THIS
+ * @override
+ * @suppress {checkTypes} The types are specialized in this override.
+ * @see https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/TypedArray/sort
+ */
+BigUint64Array.prototype.sort = function(opt_compareFunction) {};
+
+/**
+ * NOTE: this is an ES2023 extern.
+ * @param {function(bigint, bigint): number=} compareFn
+ * @return {!BigUint64Array}
+ * @nosideeffects
+ * @override
+ * @suppress {checkTypes} The types are specialized in this override.
+ * @see https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/TypedArray/toSorted
+ */
+BigUint64Array.prototype.toSorted = function(compareFn) {};
+
+/**
+ * NOTE: this is an ES2023 extern.
+ * @param {number} index
+ * @param {bigint} value
+ * @return {!BigUint64Array}
+ * @nosideeffects
+ * @override
+ * @suppress {checkTypes} The types are specialized in this override.
+ * @see https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/TypedArray/with
+ */
+BigUint64Array.prototype.with = function(index, value) {};
 
 /**
  * @param {ArrayBuffer|SharedArrayBuffer} buffer
@@ -1327,7 +1445,7 @@ var Thenable;
  * and respective type inference where available.
  * {@see goog.Thenable} inherits from this making all promises
  * interoperate.
- * @interface
+ * @record
  * @struct
  * @template TYPE
  */
@@ -1357,12 +1475,22 @@ IThenable.prototype.then = function(opt_onFulfilled, opt_onRejected) {};
 
 
 /**
+ * NOTE: For consistency with TypeScript, prefer `PromiseLike` over `IThenable`.
+ * @record
+ * @struct
+ * @template TYPE
+ * @extends {IThenable<TYPE>}
+ */
+function PromiseLike() {}
+
+
+/**
  * @see https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Promise
  * @param {function(
  *             function((TYPE|IThenable<TYPE>|Thenable|null)=),
  *             function(*=))} resolver
  * @constructor
- * @implements {IThenable<TYPE>}
+ * @implements {PromiseLike<TYPE>}
  * @template TYPE
  */
 function Promise(resolver) {}
@@ -1747,6 +1875,57 @@ Array.prototype.flatMap = function(callback, thisArg) {};
  */
 Array.prototype.flat = function(depth) {};
 
+/**
+ * NOTE: this is an ES2023 extern.
+ * @override
+ * @return {!Array<T>}
+ * @this {!IArrayLike<T>}
+ * @template T
+ * @nosideeffects
+ * @see https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Array/toReversed
+ */
+Array.prototype.toReversed = function() {};
+
+/**
+ * NOTE: this is an ES2023 extern.
+ * @override
+ * @param {function(T, T): number=} compareFn A function that defines the sort
+ *     order.
+ * @return {!Array<T>}
+ * @this {!IArrayLike<T>}
+ * @template VALUE
+ * @nosideeffects
+ * @see https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Array/toSorted
+ */
+Array.prototype.toSorted = function(compareFn) {};
+
+/**
+ * NOTE: this is an ES2023 extern.
+ * @override
+ * @param {number} start
+ * @param {number=} skipCount
+ * @param {...T} var_toAdd
+ * @return {!Array<T>}
+ * @this {!IArrayLike<T>}
+ * @template T
+ * @nosideeffects
+ * @see https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Array/toSpliced
+ */
+Array.prototype.toSpliced = function(start, skipCount, var_toAdd) {};
+
+/**
+ * NOTE: this is an ES2023 extern.
+ * @override
+ * @param {number} index
+ * @param {T} value
+ * @return {!Array<T>}
+ * @this {!IArrayLike<T>}
+ * @template T
+ * @nosideeffects
+ * @see https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Array/with
+ */
+Array.prototype.with = function(index, value) {};
+
 /** @return {!IteratorIterable<number>} */
 ReadonlyArray.prototype.keys;
 
@@ -1870,6 +2049,53 @@ ReadonlyArray.prototype.flatMap = function(callback, thisArg) {};
 ReadonlyArray.prototype.flat = function(depth) {};
 
 /**
+ * NOTE: this is an ES2023 extern.
+ * @return {!Array<T>}
+ * @this {!IArrayLike<T>}
+ * @template T
+ * @nosideeffects
+ * @see https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Array/toReversed
+ */
+ReadonlyArray.prototype.toReversed = function() {};
+
+/**
+ * NOTE: this is an ES2023 extern.
+ * @param {function(T, T): number=} compareFn A function that defines the sort
+ *     order.
+ * @return {!Array<T>}
+ * @this {!IArrayLike<T>}
+ * @template T
+ * @nosideeffects
+ * @see https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Array/toSorted
+ */
+ReadonlyArray.prototype.toSorted = function(compareFn) {};
+
+/**
+ * NOTE: this is an ES2023 extern.
+ * @param {number} start
+ * @param {number=} skipCount
+ * @param {...T} var_toAdd
+ * @return {!Array<T>}
+ * @this {!IArrayLike<T>}
+ * @template T
+ * @nosideeffects
+ * @see https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Array/toSpliced
+ */
+ReadonlyArray.prototype.toSpliced = function(start, skipCount, var_toAdd) {};
+
+/**
+ * NOTE: this is an ES2023 extern.
+ * @param {number} index
+ * @param {T} value
+ * @return {!Array<T>}
+ * @this {!IArrayLike<T>}
+ * @template T
+ * @nosideeffects
+ * @see https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Array/with
+ */
+ReadonlyArray.prototype.with = function(index, value) {};
+
+/**
  * @param {!Iterable<*>} errors
  * @param {string} message
  * @constructor
@@ -1980,6 +2206,7 @@ Number.isSafeInteger = function(value) {};
  * @param {!Object} target
  * @param {...(Object|null|undefined)} var_args
  * @return {!Object}
+ * @modifies {arguments}
  * @see https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Object/assign
  */
 Object.assign = function(target, var_args) {};
@@ -2260,6 +2487,15 @@ Atomics.sub = function(typedArray, index, value) {};
 Atomics.wait = function(typedArray, index, value, timeout) {};
 
 /**
+ * @param {!Int32Array|!BigInt64Array} typedArray
+ * @param {number} index
+ * @param {number} value
+ * @param {number=} timeout
+ * @return {!Promise<string>}
+ */
+Atomics.waitAsync = function(typedArray, index, value, timeout) {};
+
+/**
  * @param {!Int32Array} typedArray
  * @param {number} index
  * @param {number=} count
@@ -2278,70 +2514,69 @@ Atomics.xor = function(typedArray, index, value) {};
 
 
 /**
- * TODO(b/142881197): UNUSED_RETURN_T and UNUSED_NEXT_T are not yet used for
- * anything.
+ * TODO(b/142881197): TReturn and TNext are not yet used for anything.
  * https://github.com/google/closure-compiler/issues/3489
  * @interface
- * @template VALUE, UNUSED_RETURN_T, UNUSED_NEXT_T
+ * @template T, TReturn, TNext
  * @see https://tc39.github.io/proposal-async-iteration/
  */
 function AsyncIterator() {}
 
 /**
  * @param {?=} opt_value
- * @return {!Promise<!IIterableResult<VALUE>>}
+ * @return {!Promise<!IIterableResult<T>>}
  */
 AsyncIterator.prototype.next;
 
 
 /**
  * @interface
- * @template VALUE
+ * @template T, TReturn, TNext
  */
 function AsyncIterable() {}
 
 
 /**
- * @return {!AsyncIterator<VALUE, ?, *>}
+ * @return {!AsyncIterator<T, ?, *>}
  */
 AsyncIterable.prototype[Symbol.asyncIterator] = function() {};
 
 
 /**
  * @interface
- * @extends {AsyncIterator<VALUE, ?, *>}
- * @extends {AsyncIterable<VALUE>}
- * @template VALUE
+ * @extends {AsyncIterator<T, ?, *>}
+ * @extends {AsyncIterable<T>}
+ * @template T
  * @see https://tc39.github.io/proposal-async-iteration/
  */
 function AsyncIteratorIterable() {}
 
 /**
- * TODO(b/142881197): UNUSED_RETURN_T and UNUSED_NEXT_T are not yet used for
- * anything. https://github.com/google/closure-compiler/issues/3489
+ * TODO(b/142881197): TReturn and TNext are not yet used for anything.
+ * https://github.com/google/closure-compiler/issues/3489
  * @interface
  * @see https://tc39.github.io/proposal-async-iteration/
- * @extends {AsyncIteratorIterable<VALUE>}
- * @template VALUE, UNUSED_RETURN_T, UNUSED_NEXT_T
+ * @extends {AsyncIteratorIterable<T, TReturn, TNext>}
+ * @template T, TReturn, TNext
  */
 function AsyncGenerator() {}
 
 /**
  * @param {?=} opt_value
- * @return {!Promise<!IIterableResult<VALUE>>}
+ * @return {!Promise<!IIterableResult<T>>}
  * @override
  */
 AsyncGenerator.prototype.next = function(opt_value) {};
 
 /**
- * @param {VALUE} value
- * @return {!Promise<!IIterableResult<VALUE>>}
+ * @param {T} value
+ * @return {!Promise<!IIterableResult<T>>}
  */
 AsyncGenerator.prototype.return = function(value) {};
 
 /**
  * @param {?} exception
- * @return {!Promise<!IIterableResult<VALUE>>}
+ * @return {!Promise<!IIterableResult<T>>}
  */
 AsyncGenerator.prototype.throw = function(exception) {};
 
@@ -2377,8 +2612,8 @@ function FinalizationRegistry(cleanupCallback) {}
  * @param {TOKEN=} unregisterToken
  * @return {void}
  */
-FinalizationRegistry.prototype.register =
-    function(target, heldValue, unregisterToken) {};
+FinalizationRegistry.prototype.register = function(
+    target, heldValue, unregisterToken) {};
 
 /**
  * @param {TOKEN} unregisterToken
@@ -2390,3 +2625,147 @@ FinalizationRegistry.prototype.unregister = function(unregisterToken) {};
  * @type {!Global}
  */
 var globalThis;
+
+/**
+ * @const {symbol}
+ */
+Symbol.dispose;
+
+/**
+ * @const {symbol}
+ */
+Symbol.asyncDispose;
+
+/**
+ * Wraps an error that suppresses another error, and the error that was
+ * suppressed.
+ *
+ * @constructor
+ * @extends {Error}
+ * @param {?} error The error that resulted in a suppression.
+ * @param {?} suppressed The error that was suppressed.
+ * @param {string=} message The message for the error.
+ * @return {!SuppressedError}
+ * @nosideeffects
+ */
+function SuppressedError(error, suppressed, message) {}
+
+/**
+ * The error that resulted in a suppression.
+ * @type {?}
+ */
+SuppressedError.prototype.error;
+
+/**
+ * The error that was suppressed.
+ * @type {?}
+ */
+SuppressedError.prototype.suppressed;
+
+
+/**
+ * @record
+ */
+function Disposable() {}
+
+/**
+ * @return {void}
+ */
+Disposable.prototype[Symbol.dispose] = function() {};
+
+/**
+ * A DisposableStack is an object that can be used to contain one or more
+ * resources that should be disposed together.
+ *
+ * @constructor
+ */
+function DisposableStack() {}
+
+/**
+ * @type {boolean}
+ */
+DisposableStack.prototype.disposed;
+
+/**
+ * @return {void}
+ */
+DisposableStack.prototype.dispose = function() {};
+/**
+ * @return {void}
+ */
+DisposableStack.prototype[Symbol.dispose] = function () {};
+/**
+ * @param {!Disposable|null|undefined} disposable
+ * @return {!Disposable|null|undefined}
+ */
+DisposableStack.prototype.use = function(disposable) {};
+/**
+ * @template T
+ * @param {T} value
+ * @param {function(T)} onDispose
+ * @return {T}
+ */
+DisposableStack.prototype.adopt = function(value, onDispose) {};
+/**
+ * @param {function(): void} onDispose
+ * @return {void}
+ */
+DisposableStack.prototype.defer = function(onDispose) {};
+/**
+ * @return {!DisposableStack}
+ */
+DisposableStack.prototype.move = function() {};
+
+/**
+ * @record
+ */
+function AsyncDisposable() {}
+
+/**
+ * @return {!Promise<void>}
+ */
+AsyncDisposable.prototype[Symbol.asyncDispose] = function() {};
+
+/**
+ * An AsyncDisposableStack is an object that can be used to contain one or more
+ * resources that should be disposed of together. The resources may be disposed
+ * of asynchronously.
+ *
+ * @constructor
+ */
+function AsyncDisposableStack() {}
+
+/**
+ * @type {boolean}
+ */
+AsyncDisposableStack.prototype.disposed;
+
+/**
+ * @return {!Promise<void>}
+ */
+AsyncDisposableStack.prototype.disposeAsync = function() {};
+/**
+ * @return {!Promise<void>}
+ */
+AsyncDisposableStack.prototype[Symbol.asyncDispose] = function () {};
+/**
+ * @param {!AsyncDisposable|!Disposable|null|undefined} disposable
+ * @return {!AsyncDisposable|!Disposable|null|undefined}
+ */
+AsyncDisposableStack.prototype.use = function(disposable) {};
+/**
+ * @template T
+ * @param {T} value
+ * @param {function(T): (void|!Promise<void>)} onDispose
+ * @return {T}
+ */
+AsyncDisposableStack.prototype.adopt = function(value, onDispose) {};
+/**
+ * @param {function(): (void|!Promise<void>)} onDispose
+ * @return {void}
+ */
+AsyncDisposableStack.prototype.defer = function(onDispose) {};
+/**
+ * @return {!AsyncDisposableStack}
+ */
+AsyncDisposableStack.prototype.move = function() {};

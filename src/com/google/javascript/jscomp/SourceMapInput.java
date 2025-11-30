@@ -19,7 +19,7 @@ package com.google.javascript.jscomp;
 import com.google.debugging.sourcemap.SourceMapConsumerV3;
 import com.google.debugging.sourcemap.SourceMapParseException;
 import java.io.IOException;
-import org.jspecify.nullness.Nullable;
+import org.jspecify.annotations.Nullable;
 
 /** A lazy-loaded SourceMapConsumerV3 instance. */
 public final class SourceMapInput {
@@ -55,11 +55,11 @@ public final class SourceMapInput {
       } catch (IOException e) {
         JSError error =
             JSError.make(SourceMapInput.SOURCEMAP_RESOLVE_FAILED, sourceMapPath, e.getMessage());
-        errorManager.report(error.getDefaultLevel(), error);
+        errorManager.report(error.defaultLevel(), error);
       } catch (SourceMapParseException e) {
         JSError error =
             JSError.make(SourceMapInput.SOURCEMAP_PARSE_FAILED, sourceMapPath, e.getMessage());
-        errorManager.report(error.getDefaultLevel(), error);
+        errorManager.report(error.defaultLevel(), error);
       }
     }
     return parsedSourceMap;

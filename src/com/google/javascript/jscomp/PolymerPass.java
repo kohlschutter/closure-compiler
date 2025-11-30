@@ -31,7 +31,7 @@ import com.google.javascript.rhino.Node;
 import com.google.javascript.rhino.Token;
 import java.util.LinkedHashSet;
 import java.util.Set;
-import org.jspecify.nullness.Nullable;
+import org.jspecify.annotations.Nullable;
 
 /**
  * Rewrites "Polymer({})" calls into a form that is suitable for type checking and dead code
@@ -46,7 +46,6 @@ final class PolymerPass extends ExternsSkippingCallback implements CompilerPass 
 
   private final AbstractCompiler compiler;
   private final ImmutableMap<String, String> tagNameMap;
-  private final boolean propertyRenamingEnabled;
 
   private Node polymerElementExterns;
   private final Set<String> nativeExternsAdded;
@@ -56,11 +55,10 @@ final class PolymerPass extends ExternsSkippingCallback implements CompilerPass 
   private boolean warnedPolymer1ExternsMissing = false;
   private boolean propertySinkExternInjected = false;
 
-  PolymerPass(AbstractCompiler compiler, boolean propertyRenamingEnabled) {
+  PolymerPass(AbstractCompiler compiler) {
     this.compiler = compiler;
     tagNameMap = TagNameToType.getMap();
     nativeExternsAdded = new LinkedHashSet<>();
-    this.propertyRenamingEnabled = propertyRenamingEnabled;
   }
 
   @Override
@@ -70,10 +68,6 @@ final class PolymerPass extends ExternsSkippingCallback implements CompilerPass 
     polymerElementExterns = externsCallback.getPolymerElementExterns();
     polymerElementProps = externsCallback.getPolymerElementProps();
 
-    if (propertyRenamingEnabled) {
-      compiler.ensureLibraryInjected("util/reflectobject", false);
-    }
-
     globalNames = new GlobalNamespace(compiler, externs, root);
     behaviorExtractor =
         new PolymerBehaviorExtractor(
@@ -81,8 +75,8 @@ final class PolymerPass extends ExternsSkippingCallback implements CompilerPass 
 
     Node externsAndJsRoot = root.getParent();
     NodeTraversal.traverse(compiler, externsAndJsRoot, this);
-    PolymerPassSuppressBehaviors suppressBehaviorsCallback =
-        new PolymerPassSuppressBehaviors(compiler);
+    PolymerPassSuppressBehaviorsAndProtectKeys suppressBehaviorsCallback =
+        new PolymerPassSuppressBehaviorsAndProtectKeys(compiler);
     NodeTraversal.traverse(compiler, externsAndJsRoot, suppressBehaviorsCallback);
   }
 
@@ -139,8 +133,7 @@ final class PolymerPass extends ExternsSkippingCallback implements CompilerPass 
       if (def.nativeBaseElement != null) {
         appendPolymerElementExterns(def);
       }
-      PolymerClassRewriter rewriter =
-          new PolymerClassRewriter(compiler, this.propertyRenamingEnabled);
+      PolymerClassRewriter rewriter = new PolymerClassRewriter(compiler);
       rewriter.rewritePolymerCall(def, traversal);
     }
   }
@@ -149,8 +142,7 @@ final class PolymerPass extends ExternsSkippingCallback implements CompilerPass 
   private void rewritePolymer2ClassDefinition(Node node, NodeTraversal traversal) {
     PolymerClassDefinition def = PolymerClassDefinition.extractFromClassNode(node, compiler);
     if (def != null) {
-      PolymerClassRewriter rewriter =
-          new PolymerClassRewriter(compiler, this.propertyRenamingEnabled);
+      PolymerClassRewriter rewriter = new PolymerClassRewriter(compiler);
       rewriter.propertySinkExternInjected = propertySinkExternInjected;
       rewriter.rewritePolymerClassDeclaration(node, traversal, def);
       propertySinkExternInjected = rewriter.propertySinkExternInjected;
@@ -225,10 +217,13 @@ final class PolymerPass extends ExternsSkippingCallback implements CompilerPass 
     /** Value {@link Node} (RHS) for the definition of this member. */
     final Node value;
 
-    MemberDefinition(JSDocInfo info, Node name, Node value) {
+    final Node enclosingModule;
+
+    MemberDefinition(JSDocInfo info, Node name, Node value, Node enclosingModule) {
       this.info = info;
       this.name = name;
       this.value = value;
+      this.enclosingModule = enclosingModule;
     }
 
     @Override

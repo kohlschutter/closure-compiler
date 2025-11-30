@@ -18,7 +18,6 @@ package com.google.javascript.jscomp;
 import static com.google.common.collect.Iterables.getOnlyElement;
 import static com.google.common.truth.Truth.assertThat;
 import static com.google.common.truth.Truth.assertWithMessage;
-import static com.google.javascript.jscomp.CompilerTestCase.lines;
 import static com.google.javascript.jscomp.TypeValidator.TYPE_MISMATCH_WARNING;
 import static com.google.javascript.jscomp.testing.JSCompCorrespondences.DIAGNOSTIC_EQUALITY;
 import static com.google.javascript.jscomp.testing.JSErrorSubject.assertError;
@@ -40,6 +39,8 @@ import com.google.debugging.sourcemap.proto.Mapping.OriginalMapping;
 import com.google.debugging.sourcemap.proto.Mapping.OriginalMapping.Precision;
 import com.google.javascript.jscomp.Compiler.ScriptNodeLicensesOnlyTracker;
 import com.google.javascript.jscomp.CompilerOptions.LanguageMode;
+import com.google.javascript.jscomp.CompilerOptions.SegmentOfCompilationToRun;
+import com.google.javascript.jscomp.base.Tri;
 import com.google.javascript.jscomp.deps.ModuleLoader.ResolutionMode;
 import com.google.javascript.jscomp.serialization.AstNode;
 import com.google.javascript.jscomp.serialization.LazyAst;
@@ -48,7 +49,6 @@ import com.google.javascript.jscomp.serialization.SourceFilePool;
 import com.google.javascript.jscomp.serialization.StringPool;
 import com.google.javascript.jscomp.serialization.TypedAst;
 import com.google.javascript.jscomp.testing.TestExternsBuilder;
-import com.google.javascript.rhino.IR;
 import com.google.javascript.rhino.InputId;
 import com.google.javascript.rhino.Node;
 import com.google.javascript.rhino.StaticSourceFile;
@@ -67,7 +67,7 @@ import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import org.jspecify.nullness.Nullable;
+import org.jspecify.annotations.Nullable;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.junit.runners.JUnit4;
@@ -153,7 +153,8 @@ public final class CompilerTest {
     ImmutableList<SourceFile> thirdPartyCode =
         ImmutableList.of(
             SourceFile.fromCode(
-                "closure_unaware_code.js", "/** @closureUnaware */ function alert(x) {}"));
+                "closure_unaware_code.js",
+                "/** @fileoverview @closureUnaware */ function alert(x) {}"));
     CompilerOptions options = new CompilerOptions();
     options.setPreserveTypeAnnotations(true);
     options.setLanguageIn(LanguageMode.ECMASCRIPT3);
@@ -162,8 +163,7 @@ public final class CompilerTest {
     compiler.parseInputs();
     assertThat(compiler.toSource()).isEqualTo("/** @closureUnaware */ function alert(x){};");
     assertThat(compiler.getJsRoot().getChildCount()).isEqualTo(1);
-    StaticSourceFile staticSourceFile =
-        compiler.getJsRoot().getChildAtIndex(0).getStaticSourceFile();
+    StaticSourceFile staticSourceFile = compiler.getJsRoot().getFirstChild().getStaticSourceFile();
     assertThat(staticSourceFile.getName()).isEqualTo("closure_unaware_code.js");
     assertThat(staticSourceFile.isClosureUnawareCode()).isTrue();
   }
@@ -239,15 +239,15 @@ public final class CompilerTest {
   }
 
   private static final String SOURCE_MAP_TEST_CODE =
-      Joiner.on("\n")
-          .join(
-              "var X = (function () {",
-              "    function X(input) {",
-              "        this.y = input;",
-              "    }",
-              "    return X;",
-              "}());",
-              "console.log(new X(1));");
+      """
+      var X = (function () {
+          function X(input) {
+              this.y = input;
+          }
+          return X;
+      }());
+      console.log(new X(1));
+      """;
 
   private static final String SOURCE_MAP =
       "{\"version\":3,\"file\":\"foo.js\",\"sourceRoot\":\"\",\"sources\":[\"foo.ts\"],\"names\":[],\"mappings\":\"AAAA;IAGE,WAAY,KAAa;QACvB,IAAI,CAAC,CAAC,GAAG,KAAK,CAAC;IACjB,CAAC;IACH,QAAC;AAAD,CAAC,AAND,IAMC;AAED,OAAO,CAAC,GAAG,CAAC,IAAI,CAAC,CAAC,CAAC,CAAC,CAAC,CAAC\"}";
@@ -269,15 +269,15 @@ public final class CompilerTest {
   }
 
   private static final String SOURCE_MAP_TEST_CONTENT =
-      Joiner.on("\n")
-          .join(
-              "var A = (function () {",
-              "    function A(input) {",
-              "        this.a = input;",
-              "    }",
-              "    return A;",
-              "}());",
-              "console.log(new A(1));");
+      """
+      var A = (function () {
+          function A(input) {
+              this.a = input;
+          }
+          return A;
+      }());
+      console.log(new A(1));\
+      """;
 
   // Similar to BASE64_ENCODED_SOURCE_MAP; contains encoded SOURCE_MAP but with
   // SOURCE_MAP_TEST_CONTENT as the only item of sourcesContent corresponding
@@ -422,7 +422,7 @@ public final class CompilerTest {
     assertThat(mapping.getLineNumber()).isEqualTo(18);
     assertThat(mapping.getColumnPosition()).isEqualTo(26);
     assertThat(mapping.getIdentifier()).isEqualTo("testSymbolName");
-    assertThat(consumer.getOriginalSources()).containsExactly("input.js", "input.ts");
+    assertThat(consumer.getOriginalSources()).containsExactly("input.ts");
     assertThat(consumer.getOriginalSourcesContent()).isNull();
     assertThat(consumer.getOriginalNames()).containsExactly("testSymbolName");
   }
@@ -542,6 +542,49 @@ public final class CompilerTest {
   }
 
   @Test
+  public void testArtificialFunctionValidation_defaultsToOnIfEnablesDiambiguateProperties() {
+    Compiler compiler = new Compiler();
+    CompilerOptions options = createNewFlagBasedOptions();
+    options.setDisambiguateProperties(true);
+    compiler.initOptions(options);
+
+    assertThat(
+            options
+                .getWarningsGuard()
+                .mustRunChecks(DiagnosticGroups.ARTIFICIAL_FUNCTION_PURITY_VALIDATION))
+        .isEqualTo(Tri.TRUE);
+  }
+
+  @Test
+  public void testArtificialFunctionValidation_canOverrideDefault() {
+    Compiler compiler = new Compiler();
+    CompilerOptions options = createNewFlagBasedOptions();
+    options.setDisambiguateProperties(true);
+    options.setWarningLevel(DiagnosticGroups.ARTIFICIAL_FUNCTION_PURITY_VALIDATION, CheckLevel.OFF);
+    compiler.initOptions(options);
+
+    assertThat(
+            options
+                .getWarningsGuard()
+                .mustRunChecks(DiagnosticGroups.ARTIFICIAL_FUNCTION_PURITY_VALIDATION))
+        .isEqualTo(Tri.FALSE);
+  }
+
+  @Test
+  public void testArtificialFunctionValidation_defaultBehaviorWhenDisambiguateDisabled() {
+    Compiler compiler = new Compiler();
+    CompilerOptions options = createNewFlagBasedOptions();
+    options.setDisambiguateProperties(false);
+    compiler.initOptions(options);
+
+    assertThat(
+            options
+                .getWarningsGuard()
+                .mustRunChecks(DiagnosticGroups.ARTIFICIAL_FUNCTION_PURITY_VALIDATION))
+        .isEqualTo(Tri.UNKNOWN);
+  }
+
+  @Test
   public void testNormalInputs() {
     CompilerOptions options = new CompilerOptions();
     Compiler compiler = new Compiler();
@@ -617,10 +660,12 @@ public final class CompilerTest {
         ImmutableList.of(
             SourceFile.fromCode(
                 "foo",
-                ("/*! Your favorite license goes here */\n"
-                    + "/** \n"
-                    + "  * @fileoverview This is my favorite file! */\n"
-                    + "var x;")));
+                """
+                /*! Your favorite license goes here */
+                /**
+                  * @fileoverview This is my favorite file! */
+                var x;
+                """));
     assertThat(new Compiler().compile(EMPTY_EXTERNS, input, new CompilerOptions()).success)
         .isTrue();
   }
@@ -629,9 +674,11 @@ public final class CompilerTest {
   @Test
   public void testOverviewAndImportantCommentOutput() {
     test(
-        "/** @fileoverview This is my favorite file! */\n"
-            + "/*! Your favorite license goes here */\n"
-            + "console.log(0);",
+        """
+        /** @fileoverview This is my favorite file! */
+        /*! Your favorite license goes here */
+        console.log(0);
+        """,
         "/*\n Your favorite license goes here */\nconsole.log(0);",
         null);
   }
@@ -641,10 +688,12 @@ public final class CompilerTest {
   @Test
   public void testImportantCommentOverviewImportantComment() {
     test(
-        "/*! Another license */\n"
-            + "/** @fileoverview This is my favorite file! */\n"
-            + "/*! Your favorite license goes here */\n"
-            + "console.log(0);",
+        """
+        /*! Another license */
+        /** @fileoverview This is my favorite file! */
+        /*! Your favorite license goes here */
+        console.log(0);
+        """,
         "/*\n Another license  Your favorite license goes here */\nconsole.log(0);",
         null);
   }
@@ -654,11 +703,17 @@ public final class CompilerTest {
   @Test
   public void testCombinedImportantCommentOverviewDirectiveOutput() {
     test(
-        "/*! Your favorite license goes here\n"
-            + " * @fileoverview This is my favorite file! */\n"
-            + "console.log(0);",
-        "/*\n Your favorite license goes here\n"
-            + " @fileoverview This is my favorite file! */\nconsole.log(0);",
+        """
+        /*! Your favorite license goes here
+         * @fileoverview This is my favorite file! */
+        console.log(0);
+        """,
+        """
+        /*
+         Your favorite license goes here
+         @fileoverview This is my favorite file! */
+        console.log(0);
+        """,
         null);
   }
 
@@ -666,7 +721,11 @@ public final class CompilerTest {
   @Test
   public void testCombinedImportantCommentAuthorDirectiveOutput() {
     test(
-        "/*! Your favorite license goes here\n" + " * @author Robert */\n" + "console.log(0);",
+        """
+        /*! Your favorite license goes here
+         * @author Robert */
+        console.log(0);
+        """,
         "/*\n Your favorite license goes here\n @author Robert */\nconsole.log(0);",
         null);
   }
@@ -675,7 +734,11 @@ public final class CompilerTest {
   @Test
   public void testMultipleImportantCommentDirectiveOutput() {
     test(
-        "/*! Your favorite license goes here */\n" + "/*! Another license */\n" + "console.log(0);",
+        """
+        /*! Your favorite license goes here */
+        /*! Another license */
+        console.log(0);
+        """,
         "/*\n Your favorite license goes here  Another license */\nconsole.log(0);",
         null);
   }
@@ -683,9 +746,11 @@ public final class CompilerTest {
   @Test
   public void testImportantCommentLicenseDirectiveOutput() {
     test(
-        "/*! Your favorite license goes here */\n"
-            + "/** @license Another license */\n"
-            + "console.log(0);",
+        """
+        /*! Your favorite license goes here */
+        /** @license Another license */
+        console.log(0);
+        """,
         "/*\n Another license  Your favorite license goes here */\nconsole.log(0);",
         null);
   }
@@ -693,9 +758,11 @@ public final class CompilerTest {
   @Test
   public void testLicenseImportantCommentDirectiveOutput() {
     test(
-        "/** @license Your favorite license goes here */\n"
-            + "/*! Another license */\n"
-            + "console.log(0);",
+        """
+        /** @license Your favorite license goes here */
+        /*! Another license */
+        console.log(0);
+        """,
         "/*\n Your favorite license goes here  Another license */\nconsole.log(0);",
         null);
   }
@@ -705,20 +772,38 @@ public final class CompilerTest {
   @Test
   public void testImportantCommentInTree() {
     test(
-        "var a = function() {\n +"
-            + "/*! Your favorite license goes here */\n"
-            + " 1;};\nconsole.log(0);",
+        """
+        var a = function() {
+         +
+        /*! Your favorite license goes here */
+         1;};
+        console.log(0);
+        """,
         "/*\n Your favorite license goes here */\nconsole.log(0);",
         null);
   }
 
   @Test
   public void testMultipleUniqueImportantComments() {
-    String js1 = "/*! One license here */\n" + "console.log(0);";
-    String js2 = "/*! Another license here */\n" + "console.log(1);";
+    String js1 =
+        """
+        /*! One license here */
+        console.log(0);
+        """;
+    String js2 =
+        """
+        /*! Another license here */
+        console.log(1);
+        """;
     String expected =
-        "/*\n One license here */\nconsole.log(0);"
-            + "/*\n Another license here */\nconsole.log(1);";
+        """
+        /*
+         One license here */
+        console.log(0);\
+        /*
+         Another license here */
+        console.log(1);\
+        """;
 
     Compiler compiler = new Compiler();
     CompilerOptions options = createNewFlagBasedOptions();
@@ -738,8 +823,16 @@ public final class CompilerTest {
 
   @Test
   public void testMultipleIdenticalImportantComments() {
-    String js1 = "/*! Identical license here */\n" + "console.log(0);";
-    String js2 = "/*! Identical license here */\n" + "console.log(1);";
+    String js1 =
+        """
+        /*! Identical license here */
+        console.log(0);
+        """;
+    String js2 =
+        """
+        /*! Identical license here */
+        console.log(1);
+        """;
     String expected = "/*\n Identical license here */\nconsole.log(0);console.log(1);";
 
     Compiler compiler = new Compiler();
@@ -774,10 +867,12 @@ public final class CompilerTest {
         ImmutableList.of(
             SourceFile.fromCode(
                 "foo",
-                ("/** @license Your favorite license goes here */\n"
-                    + "/** \n"
-                    + "  * @fileoverview This is my favorite file! */\n"
-                    + "var x;")));
+                """
+                /** @license Your favorite license goes here */
+                /**\s
+                  * @fileoverview This is my favorite file! */
+                var x;
+                """));
     assertThat(
             new Compiler()
                 .compile(
@@ -794,9 +889,11 @@ public final class CompilerTest {
   @Test
   public void testOverviewAndLicenseDirectiveOutput() {
     test(
-        "/** @fileoverview This is my favorite file! */\n"
-            + "/** @license Your favorite license goes here */\n"
-            + "console.log(0);",
+        """
+        /** @fileoverview This is my favorite file! */
+        /** @license Your favorite license goes here */
+        console.log(0);
+        """,
         "/*\n Your favorite license goes here */\nconsole.log(0);",
         null);
   }
@@ -806,10 +903,12 @@ public final class CompilerTest {
   @Test
   public void testLicenseOverviewLicense() {
     test(
-        "/** @license Another license */\n"
-            + "/** @fileoverview This is my favorite file! */\n"
-            + "/** @license Your favorite license goes here */\n"
-            + "console.log(0);",
+        """
+        /** @license Another license */
+        /** @fileoverview This is my favorite file! */
+        /** @license Your favorite license goes here */
+        console.log(0);
+        """,
         "/*\n Your favorite license goes here  Another license */\nconsole.log(0);",
         null);
   }
@@ -819,11 +918,17 @@ public final class CompilerTest {
   @Test
   public void testCombinedLicenseOverviewDirectiveOutput() {
     test(
-        "/** @license Your favorite license goes here\n"
-            + " * @fileoverview This is my favorite file! */\n"
-            + "console.log(0);",
-        "/*\n Your favorite license goes here\n"
-            + " @fileoverview This is my favorite file! */\nconsole.log(0);",
+        """
+        /** @license Your favorite license goes here
+         * @fileoverview This is my favorite file! */
+        console.log(0);
+        """,
+        """
+        /*
+         Your favorite license goes here
+         @fileoverview This is my favorite file! */
+        console.log(0);
+        """,
         null);
   }
 
@@ -831,9 +936,11 @@ public final class CompilerTest {
   @Test
   public void testCombinedLicenseAuthorDirectiveOutput() {
     test(
-        "/** @license Your favorite license goes here\n"
-            + " * @author Robert */\n"
-            + "console.log(0);",
+        """
+        /** @license Your favorite license goes here
+         * @author Robert */
+        console.log(0);
+        """,
         "/*\n Your favorite license goes here\n @author Robert */\nconsole.log(0);",
         null);
   }
@@ -842,10 +949,11 @@ public final class CompilerTest {
   @Test
   public void testMultipleLicenseDirectiveOutput() {
     test(
-        lines(
-            "/** @license Your favorite license goes here */",
-            "/** @license Another license */",
-            "console.log(0);"),
+        """
+        /** @license Your favorite license goes here */
+        /** @license Another license */
+        console.log(0);
+        """,
         "/*\n Another license  Your favorite license goes here */\nconsole.log(0);",
         null);
   }
@@ -854,11 +962,17 @@ public final class CompilerTest {
   @Test
   public void testTwoLicenseInSameComment() {
     test(
-        lines(
-            "/** @license Your favorite license goes here ",
-            "  * @license Another license */",
-            "console.log(0);"),
-        "/*\n Your favorite license goes here \n @license Another license */\nconsole.log(0);",
+        """
+        /** @license Your favorite license goes here
+          * @license Another license */
+        console.log(0);
+        """,
+        """
+        /*
+         Your favorite license goes here
+         @license Another license */
+        console.log(0);
+        """,
         null);
   }
 
@@ -867,21 +981,35 @@ public final class CompilerTest {
   @Test
   public void testLicenseInTree() {
     test(
-        lines(
-            "var a = function() {",
-            "/** @license Your favorite license goes here */",
-            " console.log(0);};a();"),
+        """
+        var a = function() {
+        /** @license Your favorite license goes here */
+         console.log(0);};a();
+        """,
         "/*\n Your favorite license goes here */\nconsole.log(0);",
         null);
   }
 
   @Test
   public void testMultipleUniqueLicenses() {
-    String js1 = "/** @license One license here */\n" + "console.log(0);";
-    String js2 = "/** @license Another license here */\n" + "console.log(1);";
+    String js1 =
+        """
+        /** @license One license here */
+        console.log(0);
+        """;
+    String js2 =
+        """
+        /** @license Another license here */
+        console.log(1);
+        """;
     String expected =
-        "/*\n One license here */\nconsole.log(0);"
-            + "/*\n Another license here */\nconsole.log(1);";
+        """
+        /*
+         One license here */
+        console.log(0);/*
+         Another license here */
+        console.log(1);\
+        """;
 
     Compiler compiler = new Compiler();
     CompilerOptions options = createNewFlagBasedOptions();
@@ -901,12 +1029,22 @@ public final class CompilerTest {
 
   @Test
   public void testMultipleIdenticalLicenses() {
-    String js1 = "/** @license Identical license here */\n" + "console.log(0);";
-    String js2 = "/** @license Identical license here */\n" + "console.log(1);";
+    String js1 =
+        """
+        /** @license Identical license here */
+        console.log(0);
+        """;
+    String js2 =
+        """
+        /** @license Identical license here */
+        console.log(1);
+        """;
     String js3 =
-        "/** @license Identical license here */\n"
-            + "console.log(2);\n"
-            + "/** @license Identical license here */";
+        """
+        /** @license Identical license here */
+        console.log(2);
+        /** @license Identical license here */
+        """;
     String expected =
         "/*\n Identical license here */\nconsole.log(0);console.log(1);console.log(2);";
 
@@ -930,8 +1068,16 @@ public final class CompilerTest {
 
   @Test
   public void testIdenticalLicenseAndImportantComment() {
-    String js1 = "/** @license Identical license here */\n" + "console.log(0);";
-    String js2 = "/*! Identical license here */\n" + "console.log(1);";
+    String js1 =
+        """
+        /** @license Identical license here */
+        console.log(0);
+        """;
+    String js2 =
+        """
+        /*! Identical license here */
+        console.log(1);
+        """;
     String expected = "/*\n Identical license here */\nconsole.log(0);console.log(1);";
 
     Compiler compiler = new Compiler();
@@ -1046,10 +1192,10 @@ public final class CompilerTest {
     if (error == null) {
       assertWithMessage(Joiner.on(",").join(result.errors)).that(result.success).isTrue();
       String outputSource = compiler.toSource();
-      assertThat(outputSource).isEqualTo(expected);
+      assertThat(outputSource).isEqualTo(expected.trim());
     } else {
       assertThat(result.errors).hasSize(1);
-      assertThat(result.errors.get(0).getType()).isEqualTo(error);
+      assertThat(result.errors.get(0).type()).isEqualTo(error);
     }
     return result;
   }
@@ -1270,18 +1416,18 @@ public final class CompilerTest {
         Collections.singletonList(
             SourceFile.fromCode(
                 "externs.js",
-                lines(
-                    "var console = {};", //
-                    " console.log = function() {};",
-                    "")));
+                """
+                var console = {};
+                 console.log = function() {};
+                """));
     List<SourceFile> code =
         Collections.singletonList(
             SourceFile.fromCode(
                 "input.js",
-                lines(
-                    "function f() { return 2; }", //
-                    "console.log(f());",
-                    "")));
+                """
+                function f() { return 2; }
+                console.log(f());
+                """));
     compiler.init(externs, code, options);
 
     compiler.parse();
@@ -1293,7 +1439,7 @@ public final class CompilerTest {
     compiler.init(externs, code, options);
     restoreCompilerState(compiler, stateAfterChecks);
 
-    compiler.performTranspilationAndOptimizations();
+    compiler.performTranspilationAndOptimizations(SegmentOfCompilationToRun.OPTIMIZATIONS);
     String source = compiler.toSource();
     assertThat(source).isEqualTo("console.log(2);");
   }
@@ -1325,22 +1471,22 @@ public final class CompilerTest {
         Collections.singletonList(
             SourceFile.fromCode(
                 "externs.js",
-                lines(
-                    "var console = {};", //
-                    " console.log = function() {};",
-                    "")));
+                """
+                var console = {};
+                 console.log = function() {};
+                """));
     List<SourceFile> srcs =
         Collections.singletonList(
             SourceFile.fromCode(
                 "input.js",
-                lines(
-                    "/** @desc greeting */", //
-                    "const MSG_HELLO = goog.getMsg('hello');",
-                    "function f() { return MSG_HELLO; }",
-                    // Use `Error()` in order to make sure we generate a non-empty
-                    // compiler.stringMap, so we can confirm it is saved and restored.
-                    "console.log(Error('string to replace'), f());",
-                    "")));
+                """
+                /** @desc greeting */
+                const MSG_HELLO = goog.getMsg('hello');
+                function f() { return MSG_HELLO; }
+                // Use `Error()` in order to make sure we generate a non-empty
+                // compiler.stringMap, so we can confirm it is saved and restored.
+                console.log(Error('string to replace'), f());
+                """));
     compiler.init(externs, srcs, options);
 
     compiler.parse();
@@ -1352,7 +1498,7 @@ public final class CompilerTest {
     compiler.init(externs, srcs, options);
     restoreCompilerState(compiler, stateAfterChecks);
 
-    compiler.performTranspilationAndOptimizations();
+    compiler.performTranspilationAndOptimizations(SegmentOfCompilationToRun.OPTIMIZATIONS);
     String source = compiler.toSource();
     assertThat(source)
         .isEqualTo(
@@ -1381,22 +1527,17 @@ public final class CompilerTest {
   }
 
   private static final String RESULT_SOURCE_MAP_WITH_CONTENT =
-      lines(
-          "{",
-          "\"version\":3,",
-          "\"file\":\"output.js\",",
-          "\"lineCount\":1,",
-          "\"mappings\":\"AAQAA,OAAQC,CAAAA,GAAR,CAAY,IALVC,QAAA,EAAyB,EAKf,CAAM,CAAN,CAAZ;\",",
-          "\"sources\":[\"../test/foo.ts\"],",
-          "\"sourcesContent\":[\"var A = (function () {\\n"
-              + "    function A(input) {\\n"
-              + "        this.a = input;\\n"
-              + "    }\\n"
-              + "    return A;\\n"
-              + "}());\\n"
-              + "console.log(new A(1));\"],",
-          "\"names\":[\"console\",\"log\",\"X\"]",
-          "}\n");
+"""
+{
+"version":3,
+"file":"output.js",
+"lineCount":1,
+"mappings":"AAQAA,OAAQC,CAAAA,GAAR,CAAY,IALVC,QAAA,EAAyB,EAKf,CAAM,CAAN,CAAZ;",
+"sources":["../test/foo.ts"],
+"sourcesContent":["var A = (function () {\\n    function A(input) {\\n        this.a = input;\\n    }\\n    return A;\\n}());\\nconsole.log(new A(1));"],
+"names":["console","log","X"]
+}
+""";
 
   @Test
   public void testCheckSaveRestore3StagesSourceMaps() throws Exception {
@@ -1427,10 +1568,10 @@ public final class CompilerTest {
         Collections.singletonList(
             SourceFile.fromCode(
                 "externs.js",
-                lines(
-                    "var console = {};", //
-                    " console.log = function() {};",
-                    "")));
+                """
+                var console = {};
+                 console.log = function() {};
+                """));
     List<SourceFile> srcs =
         Collections.singletonList(
             SourceFile.fromCode(
@@ -1449,7 +1590,7 @@ public final class CompilerTest {
     compiler = new Compiler(new TestErrorManager());
     compiler.init(externs, srcs, options);
     restoreCompilerState(compiler, stateAfterChecks);
-    compiler.performTranspilationAndOptimizations();
+    compiler.performTranspilationAndOptimizations(SegmentOfCompilationToRun.OPTIMIZATIONS);
 
     String source = compiler.toSource();
     assertThat(source).isEqualTo("console.log(new function(){}(1));");
@@ -1514,10 +1655,10 @@ public final class CompilerTest {
         Collections.singletonList(
             SourceFile.fromCode(
                 "externs.js",
-                lines(
-                    "var console = {};", //
-                    " console.log = function() {};",
-                    "")));
+                """
+                var console = {};
+                 console.log = function() {};
+                """));
     List<SourceFile> srcs =
         Collections.singletonList(
             SourceFile.fromCode(
@@ -1529,7 +1670,7 @@ public final class CompilerTest {
 
     compiler.parse();
     compiler.check();
-    compiler.performTranspilationAndOptimizations();
+    compiler.performTranspilationAndOptimizations(SegmentOfCompilationToRun.OPTIMIZATIONS);
     compiler.performFinalizations();
 
     final Result result = compiler.getResult();
@@ -1608,53 +1749,6 @@ public final class CompilerTest {
     compiler.saveState(outputStream);
     outputStream.close();
     return outputStream.toByteArray();
-  }
-
-  @Test
-  public void testCheckSaveRestoreRecoverableJsAst() throws Exception {
-    Compiler compiler = new Compiler(new TestErrorManager());
-
-    CompilerOptions options = new CompilerOptions();
-    options.setAssumeForwardDeclaredForMissingTypes(true);
-    options.setLanguageIn(LanguageMode.ECMASCRIPT_2017);
-    options.setLanguageOut(LanguageMode.ECMASCRIPT5);
-    options.setCheckTypes(true);
-    options.setStrictModeInput(true);
-    options.setEmitUseStrict(true);
-    options.setPreserveDetailedSourceInfo(true);
-    options.setCheckTypes(true);
-
-    CompilationLevel.ADVANCED_OPTIMIZATIONS.setOptionsForCompilationLevel(options);
-    ImmutableList<SourceFile> externs =
-        ImmutableList.of(
-            SourceFile.fromCode(
-                "externs.js",
-                Joiner.on('\n').join("", "var console = {};", " console.log = function() {};")));
-    JSChunk m = new JSChunk("m");
-    SourceFile inputSourceFile =
-        SourceFile.fromCode(
-            "input.js",
-            Joiner.on('\n').join("", "function f() { return 2; }", "console.log(f());"));
-    JsAst realAst = new JsAst(inputSourceFile);
-    m.add(new CompilerInput(new RecoverableJsAst(realAst, /* reportParseErrors= */ true)));
-    compiler.initChunks(externs, ImmutableList.of(m), options);
-
-    compiler.parse();
-    compiler.check();
-
-    ByteArrayOutputStream byteArrayOutputStream = new ByteArrayOutputStream();
-    compiler.saveState(byteArrayOutputStream);
-    byteArrayOutputStream.close();
-
-    compiler = new Compiler(new TestErrorManager());
-    m = new JSChunk("m");
-    m.add(new CompilerInput(new RecoverableJsAst(realAst, /* reportParseErrors= */ true)));
-    compiler.initChunks(externs, ImmutableList.of(m), options);
-    restoreCompilerState(compiler, byteArrayOutputStream.toByteArray());
-
-    compiler.performTranspilationAndOptimizations();
-    String source = compiler.toSource();
-    assertThat(source).isEqualTo("'use strict';console.log(2);");
   }
 
   @Test
@@ -1748,7 +1842,7 @@ public final class CompilerTest {
 
     compiler.parse();
     compiler.check();
-    compiler.performTranspilationAndOptimizations();
+    compiler.performTranspilationAndOptimizations(SegmentOfCompilationToRun.OPTIMIZATIONS);
 
     String source = compiler.toSource();
     assertThat(source).isEqualTo("console.log(0);");
@@ -1770,7 +1864,7 @@ public final class CompilerTest {
 
     compiler.parse();
     compiler.check();
-    compiler.performTranspilationAndOptimizations();
+    compiler.performTranspilationAndOptimizations(SegmentOfCompilationToRun.OPTIMIZATIONS);
 
     String source = compiler.toSource();
     assertThat(source).isEqualTo("'use strict';console.log(0);");
@@ -1812,12 +1906,13 @@ public final class CompilerTest {
         ImmutableList.of(
             SourceFile.fromCode(
                 "/index.js",
-                lines(
-                    "var goog = {};",
-                    "goog.provide = function(ns) {};", // stub, compiled out.
-                    "goog.provide('foobar');",
-                    "const foo = require('./foo.js').default;",
-                    "foo('hello');")),
+                """
+                var goog = {};
+                goog.provide = function(ns) {}; // stub, compiled out.
+                goog.provide('foobar');
+                const foo = require('./foo.js').default;
+                foo('hello');
+                """),
             SourceFile.fromCode("/foo.js", "export default (foo) => { alert(foo); }"));
 
     ImmutableList<ModuleIdentifier> entryPoints =
@@ -1948,7 +2043,7 @@ public final class CompilerTest {
 
     Result result = compiler.getResult();
     assertThat(result.errors).hasSize(1);
-    assertThat(result.errors.get(0).getType()).isEqualTo(VarCheck.UNDEFINED_VAR_ERROR);
+    assertThat(result.errors.get(0).type()).isEqualTo(VarCheck.UNDEFINED_VAR_ERROR);
   }
 
   @Test
@@ -2051,127 +2146,6 @@ public final class CompilerTest {
   }
 
   @Test
-  public void testReportChangeNoScopeFails() {
-    Compiler compiler = new Compiler();
-
-    Node detachedNode = IR.var(IR.name("foo"));
-
-    try {
-      compiler.reportChangeToEnclosingScope(detachedNode);
-      assertWithMessage("Reporting a change on a node with no scope should have failed.").fail();
-    } catch (IllegalStateException e) {
-      return;
-    }
-  }
-
-  @Test
-  public void testReportChangeWithScopeSucceeds() {
-    Compiler compiler = new Compiler();
-
-    Node attachedNode = IR.var(IR.name("foo"));
-    IR.function(IR.name("bar"), IR.paramList(), IR.block(attachedNode));
-
-    // Succeeds without throwing an exception.
-    compiler.reportChangeToEnclosingScope(attachedNode);
-  }
-
-  /**
-   * See TimelineTest.java for the many timeline behavior tests that don't make sense to duplicate
-   * here.
-   */
-  @Test
-  public void testGetChangesAndDeletions_baseline() {
-    Compiler compiler = new Compiler();
-
-    // In the initial state nothing has been marked changed or deleted.
-    assertThat(compiler.getChangedScopeNodesForPass("FunctionInliner")).isNull();
-  }
-
-  @Test
-  public void testGetChangesAndDeletions_changeReportsVisible() {
-    Compiler compiler = new Compiler();
-    Node function1 = IR.function(IR.name("foo"), IR.paramList(), IR.block());
-    Node function2 = IR.function(IR.name("foo"), IR.paramList(), IR.block());
-    IR.root(IR.script(function1, function2));
-
-    // Mark original baseline.
-    compiler.getChangedScopeNodesForPass("FunctionInliner");
-
-    // Mark both functions changed.
-    compiler.reportChangeToChangeScope(function1);
-    compiler.reportChangeToChangeScope(function2);
-
-    // Both function1 and function2 are seen as changed and nothing is seen as deleted.
-    assertThat(compiler.getChangedScopeNodesForPass("FunctionInliner"))
-        .containsExactly(function1, function2);
-  }
-
-  @Test
-  public void testGetChangesAndDeletions_deleteOverridesChange() {
-    Compiler compiler = new Compiler();
-    Node function1 = IR.function(IR.name("foo"), IR.paramList(), IR.block());
-    Node function2 = IR.function(IR.name("foo"), IR.paramList(), IR.block());
-    IR.root(IR.script(function1, function2));
-
-    // Mark original baseline.
-    compiler.getChangedScopeNodesForPass("FunctionInliner");
-
-    // Mark both functions changed, then delete function2 and mark it deleted.
-    compiler.reportChangeToChangeScope(function1);
-    compiler.reportChangeToChangeScope(function2);
-    function2.detach();
-    compiler.reportFunctionDeleted(function2);
-
-    // Now function1 will be seen as changed and function2 will be seen as deleted, since delete
-    // overrides change.
-    assertThat(compiler.getChangedScopeNodesForPass("FunctionInliner")).containsExactly(function1);
-  }
-
-  @Test
-  public void testGetChangesAndDeletions_changeDoesntOverrideDelete() {
-    Compiler compiler = new Compiler();
-    Node function1 = IR.function(IR.name("foo"), IR.paramList(), IR.block());
-    Node function2 = IR.function(IR.name("foo"), IR.paramList(), IR.block());
-    IR.root(IR.script(function1, function2));
-
-    // Mark original baseline.
-    compiler.getChangedScopeNodesForPass("FunctionInliner");
-
-    // Mark function1 changed and function2 deleted, then try to mark function2 changed.
-    compiler.reportChangeToChangeScope(function1);
-    function2.detach();
-    compiler.reportFunctionDeleted(function2);
-    compiler.reportChangeToChangeScope(function2);
-
-    // Now function1 will be seen as changed and function2 will be seen as deleted, since change
-    // does not override delete.
-    assertThat(compiler.getChangedScopeNodesForPass("FunctionInliner")).containsExactly(function1);
-  }
-
-  @Test
-  public void testGetChangesAndDeletions_onlySeesChangesSinceLastRequest() {
-    Compiler compiler = new Compiler();
-    Node function1 = IR.function(IR.name("foo"), IR.paramList(), IR.block());
-    Node function2 = IR.function(IR.name("foo"), IR.paramList(), IR.block());
-    IR.root(IR.script(function1, function2));
-
-    // Mark original baseline.
-    compiler.getChangedScopeNodesForPass("FunctionInliner");
-
-    // Mark function1 changed and function2 deleted.
-    compiler.reportChangeToChangeScope(function1);
-    function2.detach();
-    compiler.reportFunctionDeleted(function2);
-
-    // Verify their respective states are seen.
-    assertThat(compiler.getChangedScopeNodesForPass("FunctionInliner")).containsExactly(function1);
-
-    // Check states again. Should find nothing since nothing has changed since the last
-    // 'FunctionInliner' request.
-    assertThat(compiler.getChangedScopeNodesForPass("FunctionInliner")).isEmpty();
-  }
-
-  @Test
   public void testAddIndexProvider_ThenGetIndex() {
     Compiler compiler = new Compiler();
 
@@ -2250,35 +2224,38 @@ public final class CompilerTest {
     sources.add(
         SourceFile.fromCode(
             "/entry.js",
-            lines(
-                "import './b/b.js';",
-                "import './b/a.js';",
-                "import './important.js';",
-                "import './a/b.js';",
-                "import './a/a.js';")));
+            """
+            import './b/b.js';
+            import './b/a.js';
+            import './important.js';
+            import './a/b.js';
+            import './a/a.js';
+            """));
     sources.add(SourceFile.fromCode("/a/a.js", "window['D'] = true;"));
     sources.add(SourceFile.fromCode("/a/b.js", "window['C'] = true;"));
     sources.add(SourceFile.fromCode("/b/a.js", "window['B'] = true;"));
     sources.add(
         SourceFile.fromCode(
             "/b/b.js",
-            lines(
-                "import foo from './c.js';",
-                "if (foo.settings.inUse) {",
-                "  window['E'] = true;",
-                "}",
-                "window['A'] = true;")));
+            """
+            import foo from './c.js';
+            if (foo.settings.inUse) {
+              window['E'] = true;
+            }
+            window['A'] = true;
+            """));
     sources.add(
         SourceFile.fromCode(
             "/b/c.js",
-            lines(
-                "window['BEFOREA'] = true;",
-                "",
-                "export default {",
-                "  settings: {",
-                "    inUse: Boolean(document.documentElement['attachShadow'])",
-                "  }",
-                "};")));
+            """
+            window['BEFOREA'] = true;
+
+            export default {
+              settings: {
+                inUse: Boolean(document.documentElement['attachShadow'])
+              }
+            };
+            """));
     sources.add(SourceFile.fromCode("/important.js", "window['E'] = false;"));
 
     CompilerOptions options = new CompilerOptions();
@@ -2310,18 +2287,20 @@ public final class CompilerTest {
     sources.add(
         SourceFile.fromCode(
             "/entry.js",
-            lines(
-                "import {A, B, C1} from './a.js';",
-                "console.log(A)",
-                "console.log(B)",
-                "console.log(C1)")));
+            """
+            import {A, B, C1} from './a.js';
+            console.log(A)
+            console.log(B)
+            console.log(C1)
+            """));
     sources.add(
         SourceFile.fromCode(
             "/a.js",
-            lines(
-                "export {B} from './b.js';",
-                "export {C as C1} from './c.js';",
-                "export const A = 'a';")));
+            """
+            export {B} from './b.js';
+            export {C as C1} from './c.js';
+            export const A = 'a';
+            """));
     sources.add(SourceFile.fromCode("/b.js", "export const B = 'b';"));
     sources.add(SourceFile.fromCode("/c.js", "export const C = 'c';"));
 
@@ -2356,18 +2335,20 @@ public final class CompilerTest {
     sources.add(
         SourceFile.fromCode(
             "base.js",
-            lines(
-                "/** @fileoverview @provideGoog */",
-                "/** @const */ var goog = goog || {};",
-                "var COMPILED = false;")));
+            """
+            /** @fileoverview @provideGoog */
+            /** @const */ var goog = goog || {};
+            var COMPILED = false;
+            """));
     sources.add(
         SourceFile.fromCode(
             "entry.js",
-            lines(
-                "goog.require('a');",
-                "goog.require('b');",
-                "goog.require('c');",
-                "goog.require('d');")));
+            """
+            goog.require('a');
+            goog.require('b');
+            goog.require('c');
+            goog.require('d');
+            """));
 
     CompilerOptions options = new CompilerOptions();
     options.setLanguageIn(LanguageMode.ECMASCRIPT_2015);
@@ -2403,9 +2384,10 @@ public final class CompilerTest {
     sources.add(
         SourceFile.fromCode(
             "/a.js",
-            lines(
-                "console.log(module.id);",
-                "__webpack_require__.e(0).then(function() { return __webpack_require__(3); });")));
+            """
+            console.log(module.id);
+            __webpack_require__.e(0).then(function() { return __webpack_require__(3); });
+            """));
     sources.add(SourceFile.fromCode("/b.js", "console.log(module.id); __webpack_require__(4);"));
     sources.add(SourceFile.fromCode("/c.js", "console.log(module.id);"));
 
@@ -2447,12 +2429,13 @@ public final class CompilerTest {
     sources.add(
         SourceFile.fromCode(
             "/a.js",
-            lines(
-                "console.log(module.id);",
-                "__webpack_require__.e(0).then(function() {",
-                "  const foo = __webpack_require__(3);",
-                "  console.log(foo);",
-                "});")));
+            """
+            console.log(module.id);
+            __webpack_require__.e(0).then(function() {
+              const foo = __webpack_require__(3);
+              console.log(foo);
+            });
+            """));
     sources.add(SourceFile.fromCode("/b.js", "console.log(module.id); module.exports = 'foo';"));
 
     HashMap<String, String> webpackModulesById = new HashMap<>();
@@ -2492,11 +2475,12 @@ public final class CompilerTest {
     sources.add(
         SourceFile.fromCode(
             "/a.js",
-            lines(
-                "console.log(module.id);",
-                "Promise.all([__webpack_require__.e(0)]).then(function() {",
-                "  return __webpack_require__(3);",
-                "});")));
+            """
+            console.log(module.id);
+            Promise.all([__webpack_require__.e(0)]).then(function() {
+              return __webpack_require__(3);
+            });
+            """));
     sources.add(SourceFile.fromCode("/b.js", "console.log(module.id); module.exports = 'foo';"));
 
     HashMap<String, String> webpackModulesById = new HashMap<>();
@@ -2537,18 +2521,20 @@ public final class CompilerTest {
         ImmutableList.of(
             SourceFile.fromCode(
                 "type.js",
-                lines(
-                    "goog.module('type');", //
-                    "",
-                    "exports.Type = class {}")),
+                """
+                goog.module('type');
+
+                exports.Type = class {}
+                """),
             SourceFile.fromCode(
                 "main.js",
-                lines(
-                    "goog.module('main');",
-                    "",
-                    "const {Type} = goog.requireType('type');",
-                    "",
-                    "alert(new Type());")));
+                """
+                goog.module('main');
+
+                const {Type} = goog.requireType('type');
+
+                alert(new Type());
+                """));
 
     CompilerOptions options = new CompilerOptions();
     options.setClosurePass(true);
@@ -2584,7 +2570,7 @@ public final class CompilerTest {
 
     compiler.parse();
     compiler.check();
-    compiler.performTranspilationAndOptimizations();
+    compiler.performTranspilationAndOptimizations(SegmentOfCompilationToRun.OPTIMIZATIONS);
 
     assertThat(compiler.getChunkGraph().getChunkCount()).isEqualTo(2);
     assertThat(Iterables.get(compiler.getChunkGraph().getAllChunks(), 0).getName())
@@ -2630,7 +2616,7 @@ public final class CompilerTest {
       m2 = compiler.getChunkGraph().getChunkByName("m2");
     }
 
-    compiler.performTranspilationAndOptimizations();
+    compiler.performTranspilationAndOptimizations(SegmentOfCompilationToRun.OPTIMIZATIONS);
 
     assertThat(compiler.getChunkGraph().getChunkCount()).isEqualTo(3);
 
@@ -2660,18 +2646,20 @@ public final class CompilerTest {
     SourceFile strong =
         SourceFile.fromCode(
             "strong.js",
-            lines(
-                "goog.module('strong');",
-                "const T = goog.requireType('weak');",
-                "/** @param {!T} x */ function f(x) { alert(x); }"),
+            """
+            goog.module('strong');
+            const T = goog.requireType('weak');
+            /** @param {!T} x */ function f(x) { alert(x); }
+            """,
             SourceKind.STRONG);
     SourceFile weak =
         SourceFile.fromCode(
             "type.js",
-            lines(
-                "goog.module('weak');",
-                "/** @typedef {number|string} */ exports.T;",
-                "sideeffect();"),
+            """
+            goog.module('weak');
+            /** @typedef {number|string} */ exports.T;
+            sideeffect();
+            """,
             SourceKind.WEAK);
 
     CompilerOptions options = new CompilerOptions();
@@ -2687,7 +2675,7 @@ public final class CompilerTest {
 
     compiler.parse();
     compiler.check();
-    compiler.performTranspilationAndOptimizations();
+    compiler.performTranspilationAndOptimizations(SegmentOfCompilationToRun.OPTIMIZATIONS);
     compiler.performFinalizations();
 
     assertThat(compiler.toSource())
@@ -2712,7 +2700,7 @@ public final class CompilerTest {
 
     compiler.parse();
     compiler.check();
-    compiler.performTranspilationAndOptimizations();
+    compiler.performTranspilationAndOptimizations(SegmentOfCompilationToRun.OPTIMIZATIONS);
 
     assertThat(compiler.getChunkGraph().getChunkCount()).isEqualTo(2);
     assertThat(Iterables.get(compiler.getChunkGraph().getAllChunks(), 0).getName()).isEqualTo("m");
@@ -2765,8 +2753,10 @@ public final class CompilerTest {
     assertThat(e)
         .hasMessageThat()
         .contains(
-            "Found these weak sources in other chunks:\n"
-                + "  strong_but_actually_weak.js (in chunk m)");
+            """
+            Found these weak sources in other chunks:
+              strong_but_actually_weak.js (in chunk m)\
+            """);
   }
 
   @Test
@@ -2794,17 +2784,19 @@ public final class CompilerTest {
     SourceFile strong =
         SourceFile.fromCode(
             "strong.js",
-            lines(
-                "goog.module('strong');",
-                "const T = goog.requireType('weak');",
-                "/** @param {!T} x */ function f(x) { alert(x); }"));
+            """
+            goog.module('strong');
+            const T = goog.requireType('weak');
+            /** @param {!T} x */ function f(x) { alert(x); }
+            """);
     SourceFile weak =
         SourceFile.fromCode(
             "type.js",
-            lines(
-                "goog.module('weak');",
-                "/** @typedef {number|string} */ exports.T;",
-                "sideeffect();"));
+            """
+            goog.module('weak');
+            /** @typedef {number|string} */ exports.T;
+            sideeffect();
+            """);
 
     CompilerOptions options = new CompilerOptions();
     options.setEmitUseStrict(false);
@@ -2819,7 +2811,7 @@ public final class CompilerTest {
 
     compiler.parse();
     compiler.check();
-    compiler.performTranspilationAndOptimizations();
+    compiler.performTranspilationAndOptimizations(SegmentOfCompilationToRun.OPTIMIZATIONS);
     compiler.performFinalizations();
 
     assertThat(compiler.toSource())
@@ -2832,16 +2824,18 @@ public final class CompilerTest {
     SourceFile strong =
         SourceFile.fromCode(
             "moocher.js",
-            lines(
-                "goog.requireType('weak');",
-                "/** @param {!weak.T} x */ function f(x) { alert(x); }"));
+            """
+            goog.requireType('weak');
+            /** @param {!weak.T} x */ function f(x) { alert(x); }
+            """);
     SourceFile weak =
         SourceFile.fromCode(
             "type.js",
-            lines(
-                "goog.module('weak');",
-                "/** @typedef {number|string} */ exports.T;",
-                "sideeffect();"));
+            """
+            goog.module('weak');
+            /** @typedef {number|string} */ exports.T;
+            sideeffect();
+            """);
 
     CompilerOptions options = new CompilerOptions();
     options.setEmitUseStrict(false);
@@ -2854,7 +2848,7 @@ public final class CompilerTest {
 
     compiler.parse();
     compiler.check();
-    compiler.performTranspilationAndOptimizations();
+    compiler.performTranspilationAndOptimizations(SegmentOfCompilationToRun.OPTIMIZATIONS);
     compiler.performFinalizations();
 
     assertThat(compiler.toSource()).isEqualTo("function f(x){alert(x)};");
@@ -2866,24 +2860,27 @@ public final class CompilerTest {
     SourceFile strong =
         SourceFile.fromCode(
             "strong.js",
-            lines(
-                "goog.module('strong');",
-                "const T = goog.requireType('weakEntry');",
-                "/** @param {!T} x */ function f(x) { alert(x); }"));
+            """
+            goog.module('strong');
+            const T = goog.requireType('weakEntry');
+            /** @param {!T} x */ function f(x) { alert(x); }
+            """);
     SourceFile weakEntry =
         SourceFile.fromCode(
             "weakEntry.js",
-            lines(
-                "goog.module('weakEntry');",
-                "const w = goog.require('weakByAssociation');",
-                "exports = w;"));
+            """
+            goog.module('weakEntry');
+            const w = goog.require('weakByAssociation');
+            exports = w;
+            """);
     SourceFile weakByAssociation =
         SourceFile.fromCode(
             "weakByAssociation.js",
-            lines(
-                "goog.module('weakByAssociation');",
-                "/** @typedef {number|string} */ exports.T;",
-                "sideEffect();"));
+            """
+            goog.module('weakByAssociation');
+            /** @typedef {number|string} */ exports.T;
+            sideEffect();
+            """);
 
     CompilerOptions options = new CompilerOptions();
     options.setEmitUseStrict(false);
@@ -2899,7 +2896,7 @@ public final class CompilerTest {
 
     compiler.parse();
     compiler.check();
-    compiler.performTranspilationAndOptimizations();
+    compiler.performTranspilationAndOptimizations(SegmentOfCompilationToRun.OPTIMIZATIONS);
     compiler.performFinalizations();
 
     assertThat(compiler.getWarnings()).isEmpty();
@@ -2915,10 +2912,11 @@ public final class CompilerTest {
     SourceFile weakEntry =
         SourceFile.fromCode(
             "weakEntry.js",
-            lines(
-                "goog.module('weakEntry');",
-                "/** @typedef {number|string} */ exports.T;",
-                "sideEffect();"),
+            """
+            goog.module('weakEntry');
+            /** @typedef {number|string} */ exports.T;
+            sideEffect();
+            """,
             SourceKind.WEAK);
 
     CompilerOptions options = new CompilerOptions();
@@ -2943,17 +2941,19 @@ public final class CompilerTest {
     SourceFile weakMoocher =
         SourceFile.fromCode(
             "weakMoocher.js",
-            lines(
-                "const {T} = goog.require('weakByAssociation');",
-                "/** @param {!T} x */ function f(x) { alert(x); }"),
+            """
+            const {T} = goog.require('weakByAssociation');
+            /** @param {!T} x */ function f(x) { alert(x); }
+            """,
             SourceKind.WEAK);
     SourceFile weakByAssociation =
         SourceFile.fromCode(
             "weakByAssociation.js",
-            lines(
-                "goog.module('weakByAssociation');",
-                "/** @typedef {number|string} */ exports.T;",
-                "sideeffect();"));
+            """
+            goog.module('weakByAssociation');
+            /** @typedef {number|string} */ exports.T;
+            sideeffect();
+            """);
 
     CompilerOptions options = new CompilerOptions();
     options.setDependencyOptions(DependencyOptions.pruneLegacyForEntryPoints(ImmutableList.of()));
@@ -2976,18 +2976,20 @@ public final class CompilerTest {
     SourceFile strong =
         SourceFile.fromCode(
             "strong.js",
-            lines(
-                "goog.module('strong');",
-                "const T = goog.require('weak');",
-                "/** @param {!T} x */ function f(x) { alert(x); }"),
+            """
+            goog.module('strong');
+            const T = goog.require('weak');
+            /** @param {!T} x */ function f(x) { alert(x); }
+            """,
             SourceKind.STRONG);
     SourceFile weak =
         SourceFile.fromCode(
             "weak.js",
-            lines(
-                "goog.module('weak');",
-                "/** @typedef {number|string} */ exports.T;",
-                "sideEffect();"),
+            """
+            goog.module('weak');
+            /** @typedef {number|string} */ exports.T;
+            sideEffect();
+            """,
             SourceKind.WEAK);
 
     CompilerOptions options = new CompilerOptions();
@@ -3044,7 +3046,7 @@ public final class CompilerTest {
 
     compiler.parse();
     compiler.check();
-    compiler.ensureLibraryInjected("base", /* force= */ true);
+    compiler.getRuntimeJsLibManager().ensureLibraryInjected("base", /* force= */ true);
 
     ByteArrayOutputStream byteArrayOutputStream = new ByteArrayOutputStream();
     compiler.saveState(byteArrayOutputStream);
@@ -3057,7 +3059,7 @@ public final class CompilerTest {
     Node oldAst = compiler.getJsRoot().cloneTree();
 
     // should not change the AST as 'base' was already injected.
-    compiler.ensureLibraryInjected("base", /* force= */ true);
+    compiler.getRuntimeJsLibManager().ensureLibraryInjected("base", /* force= */ true);
 
     assertNode(compiler.getJsRoot()).isEqualTo(oldAst);
   }
@@ -3074,7 +3076,7 @@ public final class CompilerTest {
 
     compiler.parse();
     compiler.check();
-    compiler.ensureLibraryInjected("base", /* force= */ true);
+    compiler.getRuntimeJsLibManager().ensureLibraryInjected("base", /* force= */ true);
 
     ByteArrayOutputStream byteArrayOutputStream = new ByteArrayOutputStream();
     compiler.saveState(byteArrayOutputStream);
@@ -3087,7 +3089,7 @@ public final class CompilerTest {
 
     Node oldAst = compiler.getJsRoot().cloneTree();
 
-    compiler.ensureLibraryInjected("es6/set", /* force= */ true);
+    compiler.getRuntimeJsLibManager().ensureLibraryInjected("es6/set", /* force= */ true);
 
     assertNode(compiler.getJsRoot()).isNotEqualTo(oldAst);
 
@@ -3107,13 +3109,14 @@ public final class CompilerTest {
     SourceFile input =
         SourceFile.fromCode(
             "input.js",
-            lines(
-                "/** @license @type {!Foo} */",
-                "class Foo {}",
-                "class Bar {}",
-                "/** @typedef {number} */ let Num;",
-                "const n = /** @type {!Num} */ (5);",
-                "var /** !Foo */ f = new Bar;"));
+            """
+            /** @license @type {!Foo} */
+            class Foo {}
+            class Bar {}
+            /** @typedef {number} */ let Num;
+            const n = /** @type {!Num} */ (5);
+            var /** !Foo */ f = new Bar;
+            """);
     Compiler compiler = new Compiler();
     WeakReference<JSTypeRegistry> registryWeakReference =
         new WeakReference<>(compiler.getTypeRegistry());
@@ -3497,5 +3500,82 @@ public final class CompilerTest {
 
     assertThat(compiler.getInputsById().get(syntheticExterns.getInputId()))
         .isSameInstanceAs(syntheticExterns);
+  }
+
+  @Test
+  public void testStage2SplittingResultsInSameOutput() throws Exception {
+    Compiler compiler = new Compiler(new TestErrorManager());
+    CompilerOptions options = new CompilerOptions();
+
+    options.setEmitUseStrict(false);
+
+    CompilationLevel.ADVANCED_OPTIMIZATIONS.setOptionsForCompilationLevel(options);
+    List<SourceFile> externs =
+        Collections.singletonList(
+            SourceFile.fromCode(
+                "externs.js",
+                """
+                var console = {};
+                 console.log = function() {};
+                """));
+    List<SourceFile> srcs =
+        Collections.singletonList(
+            SourceFile.fromCode(
+                "input.js",
+                """
+                goog.module('foo');
+                const hello = 'hello';
+                function f() { return hello; }
+                console.log(f());
+                """));
+    compiler.init(externs, srcs, options);
+
+    // This is what the output should look like after all optimizations.
+    String finalOutputAfterOptimizations = "console.log(\"hello\");";
+
+    // Stage 1
+    compiler.parse();
+    compiler.check();
+    final byte[] stateAfterChecks = getSavedCompilerState(compiler);
+
+    compiler = new Compiler(new TestErrorManager());
+    compiler.init(externs, srcs, options);
+    restoreCompilerState(compiler, stateAfterChecks);
+
+    // Stage 2, all passes
+    compiler.performTranspilationAndOptimizations(SegmentOfCompilationToRun.OPTIMIZATIONS);
+    String source = compiler.toSource();
+    assertThat(source).isEqualTo(finalOutputAfterOptimizations); // test output stage 2 code
+
+    // Now reset the compiler and test splitting stage 2 into two halves. We want to test that the
+    // output is the same as when we run all of stage 2 in one go.
+    compiler = new Compiler(new TestErrorManager());
+    compiler.init(externs, srcs, options);
+
+    // Stage 1
+    compiler.parse();
+    compiler.check();
+    final byte[] stateAfterChecks2 = getSavedCompilerState(compiler);
+
+    compiler = new Compiler(new TestErrorManager());
+    compiler.init(externs, srcs, options);
+    restoreCompilerState(compiler, stateAfterChecks2);
+
+    // Stage 2, first half
+    compiler.performTranspilationAndOptimizations(
+        SegmentOfCompilationToRun.OPTIMIZATIONS_FIRST_HALF);
+    source = compiler.toSource();
+    assertThat(source).isEqualTo("console.log(function(){return\"hello\"}());");
+
+    final byte[] stateAfterFirstHalfOptimizations = getSavedCompilerState(compiler);
+    compiler = new Compiler(new TestErrorManager());
+    compiler.init(externs, srcs, options);
+    restoreCompilerState(compiler, stateAfterFirstHalfOptimizations);
+
+    // Stage 2, second half
+    compiler.performTranspilationAndOptimizations(
+        SegmentOfCompilationToRun.OPTIMIZATIONS_SECOND_HALF);
+    source = compiler.toSource();
+    assertThat(source).isEqualTo(finalOutputAfterOptimizations); // output is the same as before
   }
 }

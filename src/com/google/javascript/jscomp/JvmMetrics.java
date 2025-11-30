@@ -16,7 +16,6 @@
 
 package com.google.javascript.jscomp;
 
-import com.google.common.annotations.GwtIncompatible;
 import java.io.PrintStream;
 import java.lang.management.CompilationMXBean;
 import java.lang.management.GarbageCollectorMXBean;
@@ -27,13 +26,12 @@ import java.lang.management.MemoryUsage;
 import java.util.List;
 import java.util.Locale;
 import java.util.StringTokenizer;
-import org.jspecify.nullness.Nullable;
+import org.jspecify.annotations.Nullable;
 
 /**
  * A class to report jvm/jmx statistics. Borrowed from:
  * http://code.google.com/p/dart/source/browse/trunk/dart/compiler/java/com/google/dart/compiler/metrics/JvmMetrics.java
  */
-@GwtIncompatible("Unneccesary")
 final class JvmMetrics {
 
   private static final int TABULAR_COLON_POS = 40;

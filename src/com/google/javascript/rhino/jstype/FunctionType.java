@@ -62,7 +62,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
-import org.jspecify.nullness.Nullable;
+import org.jspecify.annotations.Nullable;
 
 /**
  * This derived type provides extended information about a function, including its return type and
@@ -179,18 +179,9 @@ public class FunctionType extends PrototypeObjectType implements JSType.WithSour
 
     if (builder.typeOfThis != null) {
       this.typeOfThis = builder.typeOfThis;
-    } else if (this instanceof NoResolvedType) {
-      /*
-       * TODO(b/112425334): Delete this special case if NO_RESOLVED_TYPE is deleted.
-       *
-       * <p>Despite being a subclass of `NoType`, `NoResolvedType` should behave more like `?`.
-       * There's no reason to believe its properties are of its own type.
-       */
-      this.typeOfThis = this.registry.getNativeType(JSTypeNative.UNKNOWN_TYPE);
     } else {
       switch (kind) {
-        case CONSTRUCTOR:
-        case INTERFACE:
+        case CONSTRUCTOR, INTERFACE -> {
           InstanceObjectType.Builder typeOfThisBuilder = InstanceObjectType.builderForCtor(this);
 
           ImmutableSet<TemplateType> ctorKeys = builder.constructorOnlyKeys;
@@ -201,15 +192,10 @@ public class FunctionType extends PrototypeObjectType implements JSType.WithSour
           }
 
           this.typeOfThis = typeOfThisBuilder.build();
-          break;
-
-        case ORDINARY:
-          this.typeOfThis = this.registry.getNativeObjectType(JSTypeNative.UNKNOWN_TYPE);
-          break;
-
-        case NONE:
-          this.typeOfThis = this;
-          break;
+        }
+        case ORDINARY ->
+            this.typeOfThis = this.registry.getNativeObjectType(JSTypeNative.UNKNOWN_TYPE);
+        case NONE -> this.typeOfThis = this;
       }
     }
 
@@ -285,20 +271,24 @@ public class FunctionType extends PrototypeObjectType implements JSType.WithSour
       return false;
     }
     switch (this.propAccess) {
-      case STRUCT:
+      case STRUCT -> {
         return true;
-      case DICT:
+      }
+      case DICT -> {
         return false;
-      case ANY_EXPLICIT:
+      }
+      case ANY_EXPLICIT -> {
         // For anything EXPLICITLY marked as @unresticted do not look to the super type.
         return false;
-      case ANY:
+      }
+      case ANY -> {
         FunctionType superc = getSuperClassConstructor();
         if (superc != null && superc.makesStructs()) {
           setStruct();
           return true;
         }
         return false;
+      }
     }
     throw new AssertionError();
   }
@@ -312,20 +302,24 @@ public class FunctionType extends PrototypeObjectType implements JSType.WithSour
       return false;
     }
     switch (this.propAccess) {
-      case DICT:
+      case DICT -> {
         return true;
-      case STRUCT:
+      }
+      case STRUCT -> {
         return false;
-      case ANY_EXPLICIT:
+      }
+      case ANY_EXPLICIT -> {
         // For anything EXPLICITLY marked as @unresticted do not look to the super type.
         return false;
-      case ANY:
+      }
+      case ANY -> {
         FunctionType superc = getSuperClassConstructor();
         if (superc != null && superc.makesDicts()) {
           setDict();
           return true;
         }
         return false;
+      }
     }
     throw new AssertionError();
   }
@@ -414,8 +408,8 @@ public class FunctionType extends PrototypeObjectType implements JSType.WithSour
   }
 
   @Override
-  public final Property getSlot(String name) {
-    if ("prototype".equals(name)) {
+  public final Property getSlot(Property.Key name) {
+    if (name.matches("prototype")) {
       // Lazy initialization of the prototype field.
       getPrototype();
       return prototypeSlot;
@@ -649,14 +643,14 @@ public class FunctionType extends PrototypeObjectType implements JSType.WithSour
   }
 
   @Override
-  public final JSType getPropertyType(String name) {
+  public final JSType getPropertyType(Property.Key name) {
     if (!hasOwnProperty(name)) {
       // Define the "call", "apply", and "bind" functions lazily.
-      boolean isCall = "call".equals(name);
-      boolean isBind = "bind".equals(name);
+      boolean isCall = name.matches("call");
+      boolean isBind = name.matches("bind");
       if (isCall || isBind) {
         defineDeclaredProperty(name, getCallOrBindSignature(isCall), source);
-      } else if ("apply".equals(name)) {
+      } else if (name.matches("apply")) {
         // Define the "apply" function lazily.
         FunctionParamBuilder builder = new FunctionParamBuilder(registry);
 
@@ -756,8 +750,8 @@ public class FunctionType extends PrototypeObjectType implements JSType.WithSour
   }
 
   @Override
-  boolean defineProperty(String name, JSType type, boolean inferred, Node propertyNode) {
-    if ("prototype".equals(name)) {
+  boolean defineProperty(Property.Key name, JSType type, boolean inferred, Node propertyNode) {
+    if (name.matches("prototype")) {
       ObjectType objType = type.toObjectType();
       if (objType != null) {
         if (prototypeSlot != null && objType.equals(prototypeSlot.getType())) {
@@ -905,18 +899,17 @@ public class FunctionType extends PrototypeObjectType implements JSType.WithSour
   @Override
   int recursionUnsafeHashCode() {
     int hc = kind.hashCode();
-    switch (kind) {
-      case CONSTRUCTOR:
-      case INTERFACE:
-        return 31 * hc + System.identityHashCode(this); // constructors use identity semantics
-      case ORDINARY:
+    return switch (kind) {
+      // constructors use identity semantics
+      case CONSTRUCTOR, INTERFACE -> 31 * hc + System.identityHashCode(this);
+      case ORDINARY -> {
         hc = 31 * hc + typeOfThis.hashCode();
         hc = 31 * hc + call.hashCode();
         hc = 31 * hc + Objects.hashCode(getClosurePrimitive());
-        return hc;
-      default:
-        throw new AssertionError();
-    }
+        yield hc;
+      }
+      default -> throw new AssertionError();
+    };
   }
 
   public final boolean hasEqualCallType(FunctionType that) {
@@ -1601,20 +1594,15 @@ public class FunctionType extends PrototypeObjectType implements JSType.WithSour
       // Verify that the builder is an a sensible state before instantiating a function.
 
       switch (this.kind) {
-        case CONSTRUCTOR:
-        case INTERFACE:
+        case CONSTRUCTOR, INTERFACE -> {
           /*
            * These kinds have no implication on whether `returnsOwnInstanceType` is reasonable. This
            * configuration may be intended to synthesize an instance type. The return type and
            * instance type are independent.
            */
-          break;
-        case NONE:
-          checkState(this.returnsOwnInstanceType);
-          break;
-        case ORDINARY:
-          checkState(!this.returnsOwnInstanceType);
-          break;
+        }
+        case NONE -> checkState(this.returnsOwnInstanceType);
+        case ORDINARY -> checkState(!this.returnsOwnInstanceType);
       }
 
       if (this.returnsOwnInstanceType) {
@@ -1625,13 +1613,8 @@ public class FunctionType extends PrototypeObjectType implements JSType.WithSour
       }
 
       switch (this.kind) {
-        case CONSTRUCTOR:
-        case INTERFACE:
-          break;
-        case NONE:
-        case ORDINARY:
-          checkState(this.constructorOnlyKeys.isEmpty());
-          break;
+        case CONSTRUCTOR, INTERFACE -> {}
+        case NONE, ORDINARY -> checkState(this.constructorOnlyKeys.isEmpty());
       }
 
       return new FunctionType(this);

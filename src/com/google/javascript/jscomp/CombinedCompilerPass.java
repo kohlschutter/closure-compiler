@@ -20,7 +20,7 @@ import com.google.common.collect.ImmutableList;
 import com.google.javascript.jscomp.NodeTraversal.ScopedCallback;
 import com.google.javascript.rhino.Node;
 import java.util.List;
-import org.jspecify.nullness.Nullable;
+import org.jspecify.annotations.Nullable;
 
 /**
  * A compiler pass combining multiple {@link Callback} and {@link ScopedCallback} objects. This pass
@@ -96,10 +96,10 @@ final class CombinedCompilerPass implements CompilerPass, ScopedCallback {
 
     private CallbackWrapper(NodeTraversal.Callback callback) {
       this.callback = callback;
-      if (callback instanceof ScopedCallback) {
-        scopedCallback = (ScopedCallback) callback;
+      if (callback instanceof ScopedCallback scopedCallback) {
+        this.scopedCallback = scopedCallback;
       } else {
-        scopedCallback = null;
+        this.scopedCallback = null;
       }
     }
 

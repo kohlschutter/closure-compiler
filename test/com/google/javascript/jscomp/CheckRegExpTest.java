@@ -18,7 +18,7 @@ package com.google.javascript.jscomp;
 
 import static com.google.common.truth.Truth.assertThat;
 
-import org.jspecify.nullness.Nullable;
+import org.jspecify.annotations.Nullable;
 import org.junit.Before;
 import org.junit.Test;
 import org.junit.runner.RunWith;
@@ -123,14 +123,15 @@ public final class CheckRegExpTest extends CompilerTestCase {
 
     // Class property is also OK.
     testReference(
-        lines(
-            "class x {",
-            "  constructor() {this.RegExp = {};}",
-            "  method() {",
-            "    this.RegExp.$1;",
-            "    this.RegExp.test();",
-            "  }",
-            "}"),
+        """
+        class x {
+          constructor() {this.RegExp = {};}
+          method() {
+            this.RegExp.$1;
+            this.RegExp.test();
+          }
+        }
+        """,
         false);
   }
 

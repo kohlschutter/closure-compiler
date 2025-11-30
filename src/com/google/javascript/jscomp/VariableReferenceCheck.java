@@ -28,7 +28,7 @@ import com.google.javascript.rhino.Token;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Set;
-import org.jspecify.nullness.Nullable;
+import org.jspecify.annotations.Nullable;
 
 /**
  * Checks variables to see if they are referenced before their declaration, or if they are
@@ -320,7 +320,9 @@ class VariableReferenceCheck implements CompilerPass {
       Node warningNode = referenceNode;
       boolean shadowParam =
           v.isParam()
-              && NodeUtil.isBlockScopedDeclaration(referenceNode)
+              // TODOO - lharker: this won't handle destructuring block scoped declarations. Is this
+              // an actual bug?
+              && NodeUtil.isBlockScopedDeclaration(referenceNode.getParent())
               && v.getScope() == reference.getScope().getParent();
 
       boolean isFunctionDecl =

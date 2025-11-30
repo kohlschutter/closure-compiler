@@ -45,7 +45,7 @@ import java.util.Deque;
 import java.util.List;
 import java.util.Set;
 import java.util.TreeSet;
-import org.jspecify.nullness.Nullable;
+import org.jspecify.annotations.Nullable;
 
 /**
  * Reuse variable names if possible.
@@ -445,16 +445,16 @@ class CoalesceVariableNames extends NodeTraversal.AbstractCfgCallback implements
   private boolean isInMultipleLvalueDecl(Var v) {
     Token declarationType = v.declarationType();
     switch (declarationType) {
-      case LET:
-      case CONST:
-      case VAR:
+      case LET, CONST, VAR -> {
         Node nameDecl = NodeUtil.getEnclosingNode(v.getNode(), NodeUtil::isNameDeclaration);
 
         int[] count = {0}; // for lambda access
         NodeUtil.visitLhsNodesInNode(nameDecl, (lhs) -> count[0]++);
         return count[0] > 1;
-      default:
+      }
+      default -> {
         return false;
+      }
     }
   }
 

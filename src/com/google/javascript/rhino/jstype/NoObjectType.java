@@ -42,7 +42,7 @@ package com.google.javascript.rhino.jstype;
 import com.google.javascript.rhino.ErrorReporter;
 import com.google.javascript.rhino.JSDocInfo;
 import com.google.javascript.rhino.Node;
-import org.jspecify.nullness.Nullable;
+import org.jspecify.annotations.Nullable;
 
 /**
  * The bottom Object type, representing the subclass of all objects.
@@ -119,14 +119,14 @@ public class NoObjectType extends FunctionType {
   }
 
   @Override
-  final boolean defineProperty(String propertyName, JSType type,
-      boolean inferred, Node propertyNode) {
+  final boolean defineProperty(
+      Property.Key propertyName, JSType type, boolean inferred, Node propertyNode) {
     // nothing, all properties are defined
     return true;
   }
 
   @Override
-  public final void setPropertyJSDocInfo(String propertyName, JSDocInfo info) {
+  public final void setPropertyJSDocInfo(Property.Key propertyName, JSDocInfo info) {
     // Do nothing, specific properties do not have JSDocInfo.
   }
 

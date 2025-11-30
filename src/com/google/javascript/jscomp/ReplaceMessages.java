@@ -21,16 +21,19 @@ import static com.google.common.base.Preconditions.checkState;
 import static com.google.javascript.jscomp.AstFactory.type;
 import static com.google.javascript.jscomp.JsMessageVisitor.MESSAGE_TREE_MALFORMED;
 
-import com.google.common.annotations.GwtIncompatible;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Iterables;
 import com.google.errorprone.annotations.CanIgnoreReturnValue;
+import com.google.javascript.jscomp.CompilerOptions.PropertyCollapseLevel;
 import com.google.javascript.jscomp.JsMessage.Part;
 import com.google.javascript.jscomp.JsMessage.PlaceholderFormatException;
 import com.google.javascript.jscomp.JsMessage.StringPart;
+import com.google.javascript.jscomp.JsMessageVisitor.ExtractedIcuTemplateParts;
+import com.google.javascript.jscomp.JsMessageVisitor.IcuMessageTemplateString;
 import com.google.javascript.jscomp.JsMessageVisitor.MalformedException;
 import com.google.javascript.jscomp.NodeTraversal.AbstractPostOrderCallback;
+import com.google.javascript.rhino.IR;
 import com.google.javascript.rhino.Node;
 import com.google.javascript.rhino.Node.SideEffectFlags;
 import java.util.ArrayList;
@@ -41,13 +44,12 @@ import java.util.Map;
 import java.util.Map.Entry;
 import java.util.Objects;
 import java.util.Set;
-import org.jspecify.nullness.Nullable;
+import org.jspecify.annotations.Nullable;
 
 /**
  * ReplaceMessages replaces user-visible messages with alternatives. It uses Google specific
  * JsMessageVisitor implementation.
  */
-@GwtIncompatible("JsMessage")
 public final class ReplaceMessages {
   public static final DiagnosticType BUNDLE_DOES_NOT_HAVE_THE_MESSAGE =
       DiagnosticType.error(
@@ -62,13 +64,19 @@ public final class ReplaceMessages {
   private final AbstractCompiler compiler;
   private final MessageBundle bundle;
   private final boolean strictReplacement;
+  private final boolean collapsePropertiesHasRun;
   private final AstFactory astFactory;
+
+  private final Map<String, String> placeholderMapIds = new LinkedHashMap<>();
 
   ReplaceMessages(AbstractCompiler compiler, MessageBundle bundle, boolean strictReplacement) {
     this.compiler = compiler;
     this.astFactory = compiler.createAstFactory();
     this.bundle = bundle;
     this.strictReplacement = strictReplacement;
+    this.collapsePropertiesHasRun =
+        compiler.getOptions().getPropertyCollapseLevel() == PropertyCollapseLevel.ALL
+            && compiler.getOptions().doLateLocalization();
   }
 
   /**
@@ -276,6 +284,20 @@ public final class ReplaceMessages {
   private Node createMsgPropertiesNode(JsMessage message, MsgOptions msgOptions) {
     QuotedKeyObjectLitBuilder msgPropsBuilder = new QuotedKeyObjectLitBuilder();
     msgPropsBuilder.addString("key", message.getKey());
+    if (msgOptions.isIcuTemplate() && !message.canonicalPlaceholderNames().isEmpty()) {
+      // ICU messages created using `declareIcuTemplate` can get stored into the XMB file as
+      // multiple parts if necessary to record example or original code text.
+      // `icu_placeholder_names` stores these parts of the ICU message, which allows us to
+      // correctly calculate the message ID in the protected message.
+      final Node namesArrayLit = astFactory.createArraylit();
+      for (String name : message.canonicalPlaceholderNames()) {
+        namesArrayLit.addChildToBack(astFactory.createString(name));
+      }
+      // Example:
+      // declareIcuTemplate('blah blah {PH1} blah {PH2}', ... );
+      // icu_placeholder_names: ['PH1', 'PH2']
+      msgPropsBuilder.addNode("icu_placeholder_names", namesArrayLit);
+    }
     String altId = message.getAlternateId();
     if (altId != null) {
       msgPropsBuilder.addString("alt_id", altId);
@@ -306,6 +328,7 @@ public final class ReplaceMessages {
     // LinkedHashMap to keep the keys in the order we set them so our output is deterministic.
     private final LinkedHashMap<String, Node> keyToValueNodeMap = new LinkedHashMap<>();
 
+    @CanIgnoreReturnValue
     private QuotedKeyObjectLitBuilder addString(String key, String value) {
       return addNode(key, astFactory.createString(value));
     }
@@ -545,7 +568,7 @@ public final class ReplaceMessages {
               ? callNode.getChildAtIndex(2)
               : callNode.getSecondChild();
       callNode.replaceWith(replacementNode.detach());
-      Node changeScope = NodeUtil.getEnclosingChangeScopeRoot(replacementNode);
+      Node changeScope = ChangeTracker.getEnclosingChangeScopeRoot(replacementNode);
       if (changeScope != null) {
         compiler.reportChangeToChangeScope(changeScope);
       }
@@ -644,6 +667,201 @@ public final class ReplaceMessages {
   }
 
   /**
+   * Outputs a message with a hook expression that returns the correct variant based on the value of
+   * `goog.viewerGrammaticalGender` from XTB files with gendered messages.
+   *
+   * <p>With placeholders:
+   *
+   * <pre>{@code
+   * var WELCOME_MSG = function(name) {
+   *    return goog.msgKind.MASCULINE ? "Bienvenido " + name :
+   *           goog.msgKind.FEMININE ? "Bienvenida " + name :
+   *           goog.msgKind.NEUTER ? "Les damos la bienvenida " + name :
+   *           "Les damos la bienvenida " + name;
+   * }(user.getName());
+   * }</pre>
+   */
+  private Node createNodeForGenderedMsgString(
+      Node nodeToReplace,
+      JsMessage msgToUse,
+      Map<String, Node> placeholderMap,
+      MsgOptions options) {
+
+    // Dynamically build parameter list with unique ids for each placeholder
+    Node paramList = astFactory.createParamList();
+    AstFactory.Type type = type(nodeToReplace);
+    String uniqueId =
+        compiler
+            .getUniqueIdSupplier()
+            .getUniqueId(compiler.getInput(NodeUtil.getInputId(nodeToReplace)));
+    for (String placeholderName : placeholderMap.keySet()) {
+      String placeholderId = placeholderName + uniqueId;
+      paramList.addChildToBack(astFactory.createName(placeholderId, type));
+      this.placeholderMapIds.put(placeholderName, placeholderId);
+    }
+
+    Node hookExpression =
+        createHookExpressionForGenderedMsg(type, msgToUse, options, nodeToReplace);
+
+    if (placeholderMap.isEmpty()) {
+      // The translated message read from the bundle is one of the following:
+      // 1. has gendered variants and no placeholders
+      // 2. has gendered variants and is an icu template because icu templates do not have
+      // placeholders
+
+      // Create the hook expression for the gendered message. This will be used to create the call
+      // node if there are placeholders, or returned directly if there are no placeholders.
+      return hookExpression;
+    }
+
+    Node function =
+        astFactory.createFunction("", paramList, IR.block(IR.returnNode(hookExpression)), type);
+    function.setColor(nodeToReplace.getColor());
+    compiler.reportChangeToChangeScope(function);
+
+    Node callNode = astFactory.createCall(function, type);
+
+    // Add the placeholder values to the call
+    for (Node node : placeholderMap.values()) {
+      callNode.addChildToBack(node.cloneTree());
+    }
+    return callNode;
+  }
+
+  /**
+   * Creates a node representing the grammatical gender condition.
+   *
+   * <p>For example:
+   *
+   * <pre>{@code
+   * goog.msgKind.MASCULINE ? "Bienvenido + name" :
+   * goog.msgKind.FEMININE ? "Bienvenida + name" :
+   * goog.msgKind.NEUTER ? "Les damos la bienvenida + name" :
+   * "Les damos la bienvenida + name";
+   * }</pre>
+   */
+  private Node createConditionForGrammaticalGender(
+      AstFactory.Type type, JsMessage.GrammaticalGenderCase grammaticalGender, Node nodeToReplace) {
+
+    // NOTE: Collapse properties isn't guarantee to collapse any given property but if
+    // we get a partial collapse of "goog.msgKind" then something has gone very wrong
+    // so this seems reasonable rather than the alternative (traversing the AST to find the values).
+    if (collapsePropertiesHasRun) {
+      String referenceName =
+          switch (grammaticalGender) {
+            case MASCULINE -> "goog$msgKind$MASCULINE";
+            case FEMININE -> "goog$msgKind$FEMININE";
+            case NEUTER -> "goog$msgKind$NEUTER";
+            default -> "goog$msgKind$OTHER";
+          };
+      Node result = astFactory.createName(referenceName, type(nodeToReplace));
+      result.putBooleanProp(Node.IS_CONSTANT_NAME, true);
+      return result;
+    } else {
+      Node googNode = astFactory.createName("goog", type);
+      googNode.putBooleanProp(Node.IS_CONSTANT_NAME, true);
+      return astFactory.createGetProp(
+          astFactory.createGetProp(googNode, "msgKind", type(nodeToReplace)),
+          grammaticalGender.toString(),
+          type(nodeToReplace));
+    }
+  }
+
+  /**
+   * Creates a ternary expression with the gendered message variants.
+   *
+   * <p>For example:
+   *
+   * <pre>{@code
+   * goog.msgKind.MASCULINE ? "Bienvenido + name" :
+   * goog.msgKind.FEMININE ? "Bienvenida + name" :
+   * goog.msgKind.NEUTER ? "Les damos la bienvenida + name" :
+   * "Les damos la bienvenida + name";
+   * }</pre>
+   */
+  private Node createHookExpressionForGenderedMsg(
+      AstFactory.Type type, JsMessage msg, MsgOptions options, Node nodeToReplace) {
+
+    Node hookHead = IR.hook(IR.name(""), IR.string(""), IR.string(""));
+    hookHead.setColor(nodeToReplace.getColor());
+    // The previous hook condition needing to be replaced
+    Node placeholderHook = hookHead;
+
+    for (JsMessage.GrammaticalGenderCase grammaticalGender : msg.getGenderedMessageVariants()) {
+      // Skip the OTHER case as it should be the last case in the hook expression
+      if (grammaticalGender.equals(JsMessage.GrammaticalGenderCase.OTHER)) {
+        continue;
+      }
+      // Hook condition ex: `goog.msgKind.MASCULINE?` or `goog.msgKind.FEMININE ?` or
+      // `goog.msgKind.NEUTER ?`
+      Node condition = createConditionForGrammaticalGender(type, grammaticalGender, nodeToReplace);
+
+      // The last child of the hook expression will be replaced with the next currentHook
+      Node currentHook =
+          IR.hook(
+              condition,
+              getMsgPartsNode(
+                  msg.getGenderedMessageParts(grammaticalGender), options, nodeToReplace),
+              astFactory.createString(""));
+      currentHook.setColor(nodeToReplace.getColor());
+
+      if (placeholderHook.getParent() != null) {
+        // Replace the previous hook condition with the current hook condition
+        Node parent = placeholderHook.getParent();
+        parent.getLastChild().replaceWith(currentHook);
+        placeholderHook = currentHook.getLastChild();
+      } else {
+        hookHead = currentHook;
+        placeholderHook = currentHook.getLastChild();
+      }
+    }
+    // The OTHER is always the last case in the hook expression
+    placeholderHook
+        .getParent()
+        .getLastChild()
+        .replaceWith(
+            getMsgPartsNode(
+                msg.getGenderedMessageParts(JsMessage.GrammaticalGenderCase.OTHER),
+                options,
+                nodeToReplace));
+    return hookHead;
+  }
+
+  /** Returns a node representing the message parts for a corresponding gender. */
+  private Node getMsgPartsNode(List<Part> msgParts, MsgOptions options, Node nodeToReplace) {
+    Node message = null;
+    for (Part msgPart : msgParts) {
+      final Node partNode;
+      if (msgPart.isPlaceholder()) {
+        // `placeholderMapIds` contains only the placeholders from traditional goog.getMsg() calls.
+        // If a placeholder name is not found in this map, it is assumed to be an ICU placeholder.
+        String placeholderId = placeholderMapIds.get(msgPart.getJsPlaceholderName());
+        if (placeholderId == null) {
+          // Add the ICU placeholder directly to the message ex: 'Hello {NAME}'
+          message =
+              astFactory.createString(
+                  message.getString() + "{" + msgPart.getCanonicalPlaceholderName() + "}");
+          continue;
+        } else {
+          partNode = astFactory.createName(placeholderId, type(nodeToReplace));
+        }
+      } else {
+        // The part is just a string literal.
+        partNode = createNodeForMsgString(options, msgPart.getString());
+      }
+
+      if (message == null) {
+        message = partNode;
+      } else if (partNode.isString() && message.isString()) {
+        message = astFactory.createString(message.getString() + partNode.getString());
+      } else {
+        message = astFactory.createAdd(message, partNode);
+      }
+    }
+    return message;
+  }
+
+  /**
    * Creates a parse tree corresponding to the remaining message parts in an iteration. The result
    * consists of one or more STRING nodes, placeholder replacement value nodes (which can be
    * arbitrary expressions), and ADD nodes.
@@ -654,6 +872,12 @@ public final class ReplaceMessages {
   private Node constructStringExprNode(
       JsMessage msgToUse, Map<String, Node> placeholderMap, MsgOptions options, Node nodeToReplace)
       throws MalformedException {
+
+    // If the message has gendered variants, create a hook expression containing the gendered
+    // variants.
+    if (!msgToUse.getGenderedMessageVariants().isEmpty()) {
+      return createNodeForGenderedMsgString(nodeToReplace, msgToUse, placeholderMap, options);
+    }
 
     if (placeholderMap.isEmpty()) {
       // The compiler does not expect to do any placeholder substitution, because the message
@@ -882,54 +1106,105 @@ public final class ReplaceMessages {
       checkState(propertiesNode.isObjectLit(), propertiesNode);
       String msgKey = null;
       String meaning = null;
+      Set<String> icuPlaceholderNames = new LinkedHashSet<>();
+      String messageText = null;
+      Node messageTextNode = null;
       for (Node strKey = propertiesNode.getFirstChild();
           strKey != null;
           strKey = strKey.getNext()) {
         checkState(strKey.isStringKey(), strKey);
         String key = strKey.getString();
         Node valueNode = strKey.getOnlyChild();
+        if (key.equals("icu_placeholder_names")) {
+          checkState(valueNode.isArrayLit(), "icu_placeholder_names must be an array");
+          // If the message is an ICU template and `icu_placeholder_names` is present, then there
+          // are placeholders in the message. These placeholders will be replaced at runtime, but
+          // it is important that we keep track of these placeholders because it means that the
+          // ICU template CANNOT be treated as a single string part, because having placeholders
+          // means that the message has multiple parts.
+          // When a message is a `declareIcuTemplate` with multiple parts, we generate a `msg id`
+          // in the XMB, which is sent to the Translation Console so that the translators can
+          // translate this. We generate the deterministic `msg id` using an algorithm that takes
+          // into account how many parts the message has.
+          // Now during JSCompiler compilation process, we protect the message by wrapping it in a
+          // `__jscomp_define_msg__` (for safety because we don't want any of our optimization
+          // passes to change the message).
+          // Later in this method, we generate an ID (using `idGenerator.generateId()`) and use
+          // this to lookup a message in the translated XTB file. As I mentioned earlier, the
+          // algorithm for generating an ID needs to know the correct parts of the message, so we
+          // fail to generate the same ID we did when we added the message to the XMB.
+          // This `icu_placeholder_names` field is necessary to help us figure out the correct
+          // parts of the message, in order to generate the correct message ID that matches the ID
+          // we generated when we added the message to the XMB (which is the same ID in the XTB).
+          for (Node valueNodeChild : valueNode.children()) {
+            icuPlaceholderNames.add(valueNodeChild.getString());
+          }
+          continue;
+        }
         checkState(valueNode.isStringLit(), valueNode);
         String value = valueNode.getString();
         switch (key) {
-          case "key":
+          case "key" -> {
             jsMessageBuilder.setKey(value);
             msgKey = value;
-            break;
-          case "meaning":
+          }
+          case "meaning" -> {
             jsMessageBuilder.setMeaning(value);
             meaning = value;
-            break;
-          case "alt_id":
-            jsMessageBuilder.setAlternateId(value);
-            break;
-          case "msg_text":
-            try {
-              // NOTE: If the text is for an ICU template, then it will not contain any
-              // placeholders ("{$placeholderName}"), so it will be treated as a single string
-              // part.
-              jsMessageBuilder.appendParts(JsMessageVisitor.parseJsMessageTextIntoParts(value));
-            } catch (PlaceholderFormatException unused) {
-              // Somehow we stored the protected message text incorrectly, which should never
-              // happen.
-              throw new IllegalStateException(
-                  valueNode.getLocation() + ": Placeholder incorrectly formatted: >" + value + "<");
-            }
-            break;
-          case "isIcuTemplate":
-            isIcuTemplate = true;
-            break;
-          case "escapeLessThan":
-            // Just being present enables this option
-            escapeLessThanOption = true;
-            break;
-          case "unescapeHtmlEntities":
-            // just being present enables this option
-            unescapeHtmlEntitiesOption = true;
-            break;
-          default:
-            throw new IllegalStateException("unknown protected message key: " + strKey);
+          }
+          case "alt_id" -> jsMessageBuilder.setAlternateId(value);
+          case "msg_text" -> {
+            // This may be an ICU template that also has the `icu_placeholder_names` property, which
+            // means we need to append multiple parts of the message to `jsMessageBuilder`. For now,
+            // we will save the message text and current node, and we'll parse it once we know if
+            // this is an ICU template with multiple parts (after this loop to run through all the
+            // properties is finished).
+            messageText = value;
+            messageTextNode = valueNode;
+          }
+          case "isIcuTemplate" -> isIcuTemplate = true;
+          case "escapeLessThan" ->
+              // Just being present enables this option
+              escapeLessThanOption = true;
+          case "unescapeHtmlEntities" ->
+              // just being present enables this option
+              unescapeHtmlEntitiesOption = true;
+          default -> throw new IllegalStateException("unknown protected message key: " + strKey);
         }
       }
+
+      try {
+        if (!icuPlaceholderNames.isEmpty()) {
+          checkState(
+              isIcuTemplate,
+              "Found icu_placeholder_names for a message that is not an ICU template.");
+          // This is an ICU template with placeholders ("{$placeholderName}"). We cannot treat this
+          // as a single string part, because it has multiple parts. Otherwise, we will generate the
+          // wrong message id and we will not be able to find the correct translated message in the
+          // XTB file (because when the XMB message was created during message extraction, we
+          // treated this ICU template as having multiple parts).
+          final IcuMessageTemplateString icuMessageTemplateString =
+              new IcuMessageTemplateString(messageText);
+          final ExtractedIcuTemplateParts extractedIcuTemplateParts =
+              icuMessageTemplateString.extractParts(icuPlaceholderNames);
+
+          // Append the parts of the ICU template to the jsMessageBuilder.
+          jsMessageBuilder.appendParts(extractedIcuTemplateParts.extractedParts);
+        } else {
+          // This message is a single string part. It may be an ICU template without placeholders,
+          // or it may be a normal `goog.getMsg()` message.
+          jsMessageBuilder.appendParts(JsMessageVisitor.parseJsMessageTextIntoParts(messageText));
+        }
+      } catch (PlaceholderFormatException unused) {
+        // Somehow we stored the protected message text incorrectly, which should never
+        // happen 🙏
+        throw new IllegalStateException(
+            messageTextNode.getLocation()
+                + ": Placeholder incorrectly formatted: >"
+                + messageText
+                + "<");
+      }
+
       final String externalMessageId = JsMessageVisitor.getExternalMessageId(msgKey);
       if (externalMessageId != null) {
         // MSG_EXTERNAL_12345 = ...
@@ -949,6 +1224,7 @@ public final class ReplaceMessages {
           jsMessageBuilder.setId(meaningForIdGeneration);
         }
       }
+
       return new ProtectedJsMessage(
           jsMessageBuilder.build(),
           node,

@@ -21,7 +21,7 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import org.jspecify.nullness.Nullable;
+import org.jspecify.annotations.Nullable;
 
 /**
  * An ordered set that moves values to the front when added (even if already contained) and which
@@ -52,8 +52,8 @@ final class Timeline<T> {
 
     @Override
     public boolean equals(Object anObject) {
-      if (anObject instanceof Time) {
-        return name.equals(((Time) anObject).name);
+      if (anObject instanceof Time time) {
+        return name.equals(time.name);
       }
       return false;
     }

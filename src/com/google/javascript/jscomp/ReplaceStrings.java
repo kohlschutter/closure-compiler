@@ -33,7 +33,7 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import org.jspecify.nullness.Nullable;
+import org.jspecify.annotations.Nullable;
 
 /**
  * Replaces JavaScript strings in the list of supplied functions with shortened forms. Useful for
@@ -424,7 +424,7 @@ class ReplaceStrings extends AbstractPostOrderCallback implements CompilerPass {
    */
   private static DefaultNameGenerator createNameGenerator() {
     final String namePrefix = "";
-    final char[] reservedChars = new char[0];
+    final ImmutableSet<Character> reservedChars = ImmutableSet.of();
     return new DefaultNameGenerator(ImmutableSet.of(), namePrefix, reservedChars);
   }
 }

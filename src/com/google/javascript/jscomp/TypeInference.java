@@ -35,6 +35,7 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Sets;
+import com.google.errorprone.annotations.CanIgnoreReturnValue;
 import com.google.errorprone.annotations.CheckReturnValue;
 import com.google.javascript.jscomp.CodingConvention.AssertionFunctionLookup;
 import com.google.javascript.jscomp.CodingConvention.AssertionFunctionSpec;
@@ -58,7 +59,9 @@ import com.google.javascript.rhino.jstype.FunctionType.Parameter;
 import com.google.javascript.rhino.jstype.JSType;
 import com.google.javascript.rhino.jstype.JSTypeNative;
 import com.google.javascript.rhino.jstype.JSTypeRegistry;
+import com.google.javascript.rhino.jstype.KnownSymbolType;
 import com.google.javascript.rhino.jstype.ObjectType;
+import com.google.javascript.rhino.jstype.Property;
 import com.google.javascript.rhino.jstype.StaticTypedScope;
 import com.google.javascript.rhino.jstype.StaticTypedSlot;
 import com.google.javascript.rhino.jstype.TemplateType;
@@ -73,7 +76,7 @@ import java.util.LinkedHashSet;
 import java.util.Map;
 import java.util.Map.Entry;
 import java.util.Set;
-import org.jspecify.nullness.Nullable;
+import org.jspecify.annotations.Nullable;
 
 /**
  * Type inference within a script node or a function body, using the data-flow analysis framework.
@@ -85,6 +88,10 @@ class TypeInference extends DataFlowAnalysis<Node, FlowScope> {
       DiagnosticType.warning(
           "JSC_FUNCTION_LITERAL_UNDEFINED_THIS",
           "Function literal argument refers to undefined this argument");
+
+  static final DiagnosticType REASSIGN_CLASS_PROTOTYPE =
+      DiagnosticType.error(
+          "JSC_REASSIGN_CLASS_PROTOTYPE", "Reassigning a class prototype is not allowed");
 
   private final AbstractCompiler compiler;
   private final JSTypeRegistry registry;
@@ -395,7 +402,7 @@ class TypeInference extends DataFlowAnalysis<Node, FlowScope> {
       return;
     }
     switch (module.metadata().moduleType()) {
-      case ES6_MODULE:
+      case ES6_MODULE -> {
         // This call only affects exports with an inferred, not declared, type. Declared exports
         // were already added to the namespace object type in TypedScopeCreator.
         moduleImportResolver.updateEsModuleNamespaceType(
@@ -403,8 +410,8 @@ class TypeInference extends DataFlowAnalysis<Node, FlowScope> {
             module,
             syntacticBlockScope);
         return;
-      case GOOG_MODULE:
-      case LEGACY_GOOG_MODULE:
+      }
+      case GOOG_MODULE, LEGACY_GOOG_MODULE -> {
         TypedVar exportsVar =
             checkNotNull(
                 syntacticBlockScope.getVar("exports"),
@@ -446,8 +453,8 @@ class TypeInference extends DataFlowAnalysis<Node, FlowScope> {
           }
         }
         return;
-      default:
-        break;
+      }
+      default -> {}
     }
   }
 
@@ -545,180 +552,76 @@ class TypeInference extends DataFlowAnalysis<Node, FlowScope> {
   private FlowScope traverse(Node n, FlowScope scope) {
     boolean isTypeable = true;
     switch (n.getToken()) {
-      case ASSIGN:
-        scope = traverseAssign(n, scope);
-        break;
-
-      case NAME:
-        scope = traverseName(n, scope);
-        break;
-
-      case OPTCHAIN_GETPROP:
-      case OPTCHAIN_CALL:
-      case OPTCHAIN_GETELEM:
-        scope = traverseOptChain(n, scope);
-        break;
-
-      case GETPROP:
-        scope = traverseGetProp(n, scope);
-        break;
-
-      case CLASS:
-        scope = traverseClass(n, scope);
-        break;
-
-      case ASSIGN_AND:
-      case ASSIGN_OR:
-        scope = traverseShortCircuitingBinOpAssignment(n, scope);
-        break;
-
-      case AND:
-        scope = traverseAnd(n, scope).getJoinedFlowScope();
-        break;
-
-      case OR:
-        scope = traverseOr(n, scope).getJoinedFlowScope();
-        break;
-
-      case ASSIGN_COALESCE:
-      case COALESCE:
-        scope = traverseNullishCoalesce(n, scope);
-        break;
-
-      case HOOK:
-        scope = traverseHook(n, scope);
-        break;
-
-      case OBJECTLIT:
-        scope = traverseObjectLiteral(n, scope);
-        break;
-
-      case CALL:
-        scope = traverseCall(n, scope);
-        break;
-
-      case NEW:
-        scope = traverseNew(n, scope);
-        break;
-
-      case NEW_TARGET:
-        traverseNewTarget(n);
-        break;
-
-      case ASSIGN_ADD:
-      case ADD:
-        scope = traverseAdd(n, scope);
-        break;
-
-      case POS:
-        scope = traverseUnaryPlus(n, scope);
-        break;
-
-      case NEG:
-      case BITNOT:
-      case DEC:
-      case INC:
-        scope = traverseBigIntCompatibleUnaryOperator(n, scope);
-        break;
-
-      case ARRAYLIT:
-        scope = traverseArrayLiteral(n, scope);
-        break;
-
-      case THIS:
-        n.setJSType(scope.getTypeOfThis());
-        break;
-
-      case ASSIGN_LSH:
-      case ASSIGN_RSH:
-      case ASSIGN_DIV:
-      case ASSIGN_MOD:
-      case ASSIGN_BITAND:
-      case ASSIGN_BITXOR:
-      case ASSIGN_BITOR:
-      case ASSIGN_MUL:
-      case ASSIGN_SUB:
-      case ASSIGN_EXPONENT:
-        scope = traverseAssignOp(n, scope);
-        break;
-
-      case ASSIGN_URSH:
-        // >>> is not compatible with BigInt
-        scope = traverseAssignUnsignedRightShift(n, scope);
-        break;
-
-      case BITAND:
-      case BITXOR:
-      case BITOR:
-      case LSH:
-      case RSH:
-      case SUB:
-      case MUL:
-      case DIV:
-      case MOD:
-      case EXPONENT:
-        scope = traverseBigIntCompatibleBinaryOperator(n, scope);
-        break;
-
-      case URSH:
-        // >>> is not compatible with BigInt
-        scope = traverseUnsignedRightShift(n, scope);
-        break;
-
-      case COMMA:
+      case ASSIGN -> scope = traverseAssign(n, scope);
+      case NAME -> scope = traverseName(n, scope);
+      case OPTCHAIN_GETPROP, OPTCHAIN_CALL, OPTCHAIN_GETELEM -> scope = traverseOptChain(n, scope);
+      case GETPROP -> scope = traverseGetProp(n, scope);
+      case CLASS -> scope = traverseClass(n, scope);
+      case ASSIGN_AND, ASSIGN_OR -> scope = traverseShortCircuitingBinOpAssignment(n, scope);
+      case AND -> scope = traverseAnd(n, scope).getJoinedFlowScope();
+      case OR -> scope = traverseOr(n, scope).getJoinedFlowScope();
+      case ASSIGN_COALESCE, COALESCE -> scope = traverseNullishCoalesce(n, scope);
+      case HOOK -> scope = traverseHook(n, scope);
+      case OBJECTLIT -> scope = traverseObjectLiteral(n, scope);
+      case CALL -> scope = traverseCall(n, scope);
+      case NEW -> scope = traverseNew(n, scope);
+      case NEW_TARGET -> traverseNewTarget(n);
+      case ASSIGN_ADD, ADD -> scope = traverseAdd(n, scope);
+      case POS -> scope = traverseUnaryPlus(n, scope);
+      case NEG, BITNOT, DEC, INC -> scope = traverseBigIntCompatibleUnaryOperator(n, scope);
+      case ARRAYLIT -> scope = traverseArrayLiteral(n, scope);
+      case THIS -> n.setJSType(scope.getTypeOfThis());
+      case ASSIGN_LSH,
+          ASSIGN_RSH,
+          ASSIGN_DIV,
+          ASSIGN_MOD,
+          ASSIGN_BITAND,
+          ASSIGN_BITXOR,
+          ASSIGN_BITOR,
+          ASSIGN_MUL,
+          ASSIGN_SUB,
+          ASSIGN_EXPONENT ->
+          scope = traverseAssignOp(n, scope);
+      case ASSIGN_URSH ->
+          // >>> is not compatible with BigInt
+          scope = traverseAssignUnsignedRightShift(n, scope);
+      case BITAND, BITXOR, BITOR, LSH, RSH, SUB, MUL, DIV, MOD, EXPONENT ->
+          scope = traverseBigIntCompatibleBinaryOperator(n, scope);
+      case URSH ->
+          // >>> is not compatible with BigInt
+          scope = traverseUnsignedRightShift(n, scope);
+      case COMMA -> {
         scope = traverseChildren(n, scope);
         n.setJSType(getJSType(n.getLastChild()));
-        break;
-
-      case TEMPLATELIT:
-      case TYPEOF:
+      }
+      case TEMPLATELIT, TYPEOF -> {
         scope = traverseChildren(n, scope);
         n.setJSType(getNativeType(STRING_TYPE));
-        break;
-
-      case TEMPLATELIT_SUB:
-      case THROW:
-      case ITER_SPREAD:
-      case OBJECT_SPREAD:
-      case IMPORT:
-      case IMPORT_SPECS:
-      case IMPORT_STAR:
+      }
+      case TEMPLATELIT_SUB,
+          THROW,
+          ITER_SPREAD,
+          OBJECT_SPREAD,
+          IMPORT,
+          IMPORT_SPECS,
+          IMPORT_STAR -> {
         // these nodes are untyped but have children that may affect the flow scope and need to
         // be typed.
         scope = traverseChildren(n, scope);
         isTypeable = false;
-        break;
-
-      case IMPORT_SPEC:
+      }
+      case IMPORT_SPEC -> {
         // these nodes are untyped but have children that need to be typed.
         traverseImportSpec(scope, n);
         isTypeable = false;
-        break;
-
-      case TAGGED_TEMPLATELIT:
-        scope = traverseTaggedTemplateLit(n, scope);
-        break;
-
-      case DELPROP:
-      case LT:
-      case LE:
-      case GT:
-      case GE:
-      case NOT:
-      case EQ:
-      case NE:
-      case SHEQ:
-      case SHNE:
-      case INSTANCEOF:
-      case IN:
+      }
+      case TAGGED_TEMPLATELIT -> scope = traverseTaggedTemplateLit(n, scope);
+      case DELPROP, LT, LE, GT, GE, NOT, EQ, NE, SHEQ, SHNE, INSTANCEOF, IN -> {
         scope = traverseChildren(n, scope);
         n.setJSType(getNativeType(BOOLEAN_TYPE));
-        break;
-      case GETELEM:
-        scope = traverseGetElem(n, scope);
-        break;
-
-      case EXPR_RESULT:
+      }
+      case GETELEM -> scope = traverseGetElem(n, scope);
+      case EXPR_RESULT -> {
         scope = traverseChildren(n, scope);
         if (n.getFirstChild().isGetProp()) {
           Node getprop = n.getFirstChild();
@@ -729,36 +632,32 @@ class TypeInference extends DataFlowAnalysis<Node, FlowScope> {
           }
         }
         isTypeable = false;
-        break;
-
-      case SWITCH:
+      }
+      case SWITCH -> {
         scope = traverse(n.getFirstChild(), scope);
         isTypeable = false;
-        break;
-
-      case RETURN:
+      }
+      case RETURN -> {
         scope = traverseReturn(n, scope);
         isTypeable = false;
-        break;
-
-      case YIELD:
-        scope = traverseChildren(n, scope);
-        n.setJSType(getNativeType(UNKNOWN_TYPE));
-        break;
-
-      case VAR:
-      case LET:
-      case CONST:
+      }
+      case YIELD -> {
+        if (n.isYieldAll()) {
+          scope = traverseYieldAll(n, scope);
+        } else {
+          scope = traverseChildren(n, scope);
+          n.setJSType(getNativeType(UNKNOWN_TYPE));
+        }
+      }
+      case VAR, LET, CONST -> {
         scope = traverseDeclaration(n, scope);
         isTypeable = false;
-        break;
-
-      case CATCH:
+      }
+      case CATCH -> {
         scope = traverseCatch(n, scope);
         isTypeable = false;
-        break;
-
-      case CAST:
+      }
+      case CAST -> {
         scope = traverseChildren(n, scope);
         JSDocInfo info = n.getJSDocInfo();
         // TODO(b/123955687): also check that info.hasType() is true
@@ -776,22 +675,14 @@ class TypeInference extends DataFlowAnalysis<Node, FlowScope> {
         } else {
           n.setJSType(unknownType);
         }
-        break;
-
-      case SUPER:
-        traverseSuper(n, scope);
-        break;
-
-      case AWAIT:
-        scope = traverseAwait(n, scope);
-        break;
-
-      case VOID:
+      }
+      case SUPER -> traverseSuper(n, scope);
+      case AWAIT -> scope = traverseAwait(n, scope);
+      case VOID -> {
         n.setJSType(getNativeType(VOID_TYPE));
         scope = traverseChildren(n, scope);
-        break;
-
-      case EXPORT:
+      }
+      case EXPORT -> {
         scope = traverseChildren(n, scope);
         if (n.getBooleanProp(Node.EXPORT_DEFAULT)) {
           // TypedScopeCreator declared a dummy variable *default* to store this type. Update the
@@ -802,58 +693,43 @@ class TypeInference extends DataFlowAnalysis<Node, FlowScope> {
           }
         }
         isTypeable = false;
-        break;
-
-      case IMPORT_META:
-        // TODO(b/137797083): Set an appropriate type.
-        n.setJSType(unknownType);
-        break;
-
-      case ROOT:
-      case SCRIPT:
-      case MODULE_BODY:
-      case FUNCTION:
-      case PARAM_LIST:
-      case BLOCK:
-      case EMPTY:
-      case IF:
-      case WHILE:
-      case DO:
-      case FOR:
-      case FOR_IN:
-      case FOR_OF:
-      case FOR_AWAIT_OF:
-      case BREAK:
-      case CONTINUE:
-      case TRY:
-      case CASE:
-      case DEFAULT_CASE:
-      case WITH:
-      case DEBUGGER:
-      case EXPORT_SPECS:
-      case LABEL:
-        // These don't need to be typed here, since they only affect control flow.
-        isTypeable = false;
-        break;
-
-      case DYNAMIC_IMPORT:
-        traverseDynamicImport(n, scope);
-        break;
-
-      case TRUE:
-      case FALSE:
-      case STRINGLIT:
-      case NUMBER:
-      case BIGINT:
-      case NULL:
-      case REGEXP:
-      case TEMPLATELIT_STRING:
+      }
+      case IMPORT_META ->
+          // TODO(b/137797083): Set an appropriate type.
+          n.setJSType(unknownType);
+      case ROOT,
+          SCRIPT,
+          MODULE_BODY,
+          SWITCH_BODY,
+          FUNCTION,
+          PARAM_LIST,
+          BLOCK,
+          EMPTY,
+          IF,
+          WHILE,
+          DO,
+          FOR,
+          FOR_IN,
+          FOR_OF,
+          FOR_AWAIT_OF,
+          BREAK,
+          CONTINUE,
+          TRY,
+          CASE,
+          DEFAULT_CASE,
+          WITH,
+          DEBUGGER,
+          EXPORT_SPECS,
+          LABEL ->
+          // These don't need to be typed here, since they only affect control flow.
+          isTypeable = false;
+      case DYNAMIC_IMPORT -> traverseDynamicImport(n, scope);
+      case TRUE, FALSE, STRINGLIT, NUMBER, BIGINT, NULL, REGEXP, TEMPLATELIT_STRING -> {
         // Primitives are typed in TypedScopeCreator.AbstractScopeBuilder#attachLiteralTypes
-        break;
-
-      default:
-        throw new IllegalStateException(
-            "Type inference doesn't know to handle token " + n.getToken());
+      }
+      default ->
+          throw new IllegalStateException(
+              "Type inference doesn't know to handle token " + n.getToken());
     }
 
     if (isTypeable && n.getJSType() == null && !TOKENS_ALLOWING_NULL_TYPES.contains(n.getToken())) {
@@ -887,44 +763,36 @@ class TypeInference extends DataFlowAnalysis<Node, FlowScope> {
 
     final JSType newType;
     switch (source.getToken()) {
-      case FOR_IN:
-        {
-          // item is assigned a property name, so its type should be string
-          JSType iterKeyType = getNativeType(STRING_TYPE);
-          JSType objType = getJSType(obj).autobox();
-          JSType objIndexType =
-              objType.getTemplateTypeMap().getResolvedTemplateType(registry.getObjectIndexKey());
-          if (objIndexType != null && !objIndexType.isUnknownType()) {
-            JSType narrowedKeyType = iterKeyType.getGreatestSubtype(objIndexType);
-            if (!narrowedKeyType.isEmptyType()) {
-              iterKeyType = narrowedKeyType;
-            }
+      case FOR_IN -> {
+        // item is assigned a property name, so its type should be string
+        JSType iterKeyType = getNativeType(STRING_TYPE);
+        JSType objType = getJSType(obj).autobox();
+        JSType objIndexType =
+            objType.getTemplateTypeMap().getResolvedTemplateType(registry.getObjectIndexKey());
+        if (objIndexType != null && !objIndexType.isUnknownType()) {
+          JSType narrowedKeyType = iterKeyType.getGreatestSubtype(objIndexType);
+          if (!narrowedKeyType.isEmptyType()) {
+            iterKeyType = narrowedKeyType;
           }
-
-          newType = iterKeyType;
-          break;
         }
-      case FOR_OF:
-        {
+
+        newType = iterKeyType;
+      }
+      case FOR_OF ->
           // for/of. The type of `item` is the type parameter of the Iterable type.
           newType =
               JsIterables.maybeBoxIterableOrAsyncIterable(getJSType(obj), registry)
                   .orElse(unknownType);
-          break;
-        }
-      case FOR_AWAIT_OF:
-        {
-          // for/await/of. the iterated object is either of the Iterable or AsyncIterable type.
-          // the type of `item` is the Promise.resolve() type of the object's type parameter.
-          JSType iterableType =
-              JsIterables.maybeBoxIterableOrAsyncIterable(getJSType(obj), registry)
-                  .orElse(unknownType);
+      case FOR_AWAIT_OF -> {
+        // for/await/of. the iterated object is either of the Iterable or AsyncIterable type.
+        // the type of `item` is the Promise.resolve() type of the object's type parameter.
+        JSType iterableType =
+            JsIterables.maybeBoxIterableOrAsyncIterable(getJSType(obj), registry)
+                .orElse(unknownType);
 
-          newType = Promises.getResolvedType(registry, iterableType);
-          break;
-        }
-      default:
-        throw new IllegalArgumentException("Unexpected source node " + source);
+        newType = Promises.getResolvedType(registry, iterableType);
+      }
+      default -> throw new IllegalArgumentException("Unexpected source node " + source);
     }
 
     // Note that `item` can be an arbitrary LHS expression we need to check.
@@ -982,7 +850,7 @@ class TypeInference extends DataFlowAnalysis<Node, FlowScope> {
     ObjectType superNodeType = null;
 
     switch (superNode.getParent().getToken()) {
-      case CALL:
+      case CALL -> {
         // Find the closest non-arrow function (TODO(sdh): this could be an AbstractScope method).
         TypedScope scope = containerScope;
         while (scope != null && !NodeUtil.isNonArrowFunction(scope.getRootNode())) {
@@ -1000,17 +868,14 @@ class TypeInference extends DataFlowAnalysis<Node, FlowScope> {
         if (enclosingFunctionType != null && enclosingFunctionType.isConstructor()) {
           superNodeType = enclosingFunctionType.getSuperClassConstructor();
         }
-        break;
-
-      case GETELEM:
-      case GETPROP:
+      }
+      case GETELEM, GETPROP -> {
         StaticTypedScope currentSyntacticScope = currentScope.getDeclarationScope();
         superNodeType = ObjectType.cast(currentSyntacticScope.getSlot("super").getType());
-        break;
-
-      default:
-        throw new IllegalStateException(
-            "Unexpected parent of SUPER: " + superNode.getParent().toStringTree());
+      }
+      default ->
+          throw new IllegalStateException(
+              "Unexpected parent of SUPER: " + superNode.getParent().toStringTree());
     }
 
     superNode.setJSType(superNodeType != null ? superNodeType : unknownType);
@@ -1065,6 +930,18 @@ class TypeInference extends DataFlowAnalysis<Node, FlowScope> {
         }
       }
     }
+    return scope;
+  }
+
+  private FlowScope traverseYieldAll(Node n, FlowScope scope) {
+    // A yield* expression will first yield all the elements of the given iterable, and then
+    // evaluate to whatever the iterable returns when done.
+    // The yielded type and done return type are not necessarily the same. Here, we look for the
+    // done type - TReturn in Iterable<T, TReturn, TNext>.
+    scope = traverseChildren(n, scope);
+    JSType innerType = getJSType(n.getFirstChild());
+    JSType yieldAllResult = JsIterables.getReturnElementType(innerType, registry);
+    n.setJSType(yieldAllResult);
     return scope;
   }
 
@@ -1192,7 +1069,7 @@ class TypeInference extends DataFlowAnalysis<Node, FlowScope> {
     }
 
     switch (target.getToken()) {
-      case NAME:
+      case NAME -> {
         String varName = target.getString();
         TypedVar var = getDeclaredVar(scope, varName);
         JSType varType = var == null ? null : var.getType();
@@ -1280,8 +1157,8 @@ class TypeInference extends DataFlowAnalysis<Node, FlowScope> {
           // gets propagated to inner scopes.
           var.setType(resultType);
         }
-        break;
-      case GETPROP:
+      }
+      case GETPROP -> {
         if (target.isQualifiedName()) {
           String qualifiedName = target.getQualifiedName();
           boolean declaredSlotType = false;
@@ -1303,9 +1180,8 @@ class TypeInference extends DataFlowAnalysis<Node, FlowScope> {
           updateNode.setJSType(resultType);
         }
         ensurePropertyDefined(target, resultType, scope);
-        break;
-      default:
-        break;
+      }
+      default -> {}
     }
     return scope;
   }
@@ -1365,7 +1241,7 @@ class TypeInference extends DataFlowAnalysis<Node, FlowScope> {
         //    so that we can use it for missing property checks.
         if (objectType.hasProperty(propName) || !objectType.isInstanceType()) {
           if ("prototype".equals(propName)) {
-            objectType.defineDeclaredProperty(propName, rightType, getprop);
+            defineDeclaredProperty(objectType, propName, rightType, getprop);
           } else {
             objectType.defineInferredProperty(propName, rightType, getprop);
           }
@@ -1376,6 +1252,21 @@ class TypeInference extends DataFlowAnalysis<Node, FlowScope> {
         }
       }
     }
+  }
+
+  @CanIgnoreReturnValue
+  private boolean defineDeclaredProperty(
+      ObjectType objectType, String propName, JSType rightType, Node getprop) {
+    if (propName.equals("prototype") && !getprop.getParent().isExprResult()) {
+      FunctionType functionType = objectType.toMaybeFunctionType();
+      if (functionType != null
+          && functionType.getSource() != null
+          && functionType.getSource().isClass()) {
+        compiler.report(JSError.make(getprop.getParent(), REASSIGN_CLASS_PROTOTYPE));
+        return true;
+      }
+    }
+    return objectType.defineDeclaredProperty(propName, rightType, getprop);
   }
 
   /**
@@ -1397,7 +1288,7 @@ class TypeInference extends DataFlowAnalysis<Node, FlowScope> {
             (!objectType.hasOwnProperty(propName)
                 && (!objectType.isInstanceType()
                     || (var.isExtern() && !objectType.isNativeObjectType())))) {
-          return objectType.defineDeclaredProperty(propName, var.getType(), getprop);
+          return defineDeclaredProperty(objectType, propName, var.getType(), getprop);
         }
       }
     }
@@ -1641,17 +1532,12 @@ class TypeInference extends DataFlowAnalysis<Node, FlowScope> {
   /** Traverse unary minus, bitwise NOT, increment, and decrement */
   private FlowScope traverseBigIntCompatibleUnaryOperator(Node n, FlowScope scope) {
     scope = traverseChildren(n, scope); // Find types.
-    switch (getBigIntPresence(getJSType(n.getFirstChild()))) { // BigIntPresence in operand
-      case ALL_BIGINT:
-        n.setJSType(getNativeType(BIGINT_TYPE));
-        break;
-      case NO_BIGINT:
-        n.setJSType(getNativeType(NUMBER_TYPE));
-        break;
-      case BIGINT_OR_NUMBER:
-      case BIGINT_OR_OTHER:
-        n.setJSType(getNativeType(BIGINT_NUMBER));
-        break;
+    switch (getBigIntPresence(getJSType(n.getFirstChild()))) {
+      case ALL_BIGINT ->
+          // BigIntPresence in operand
+          n.setJSType(getNativeType(BIGINT_TYPE));
+      case NO_BIGINT -> n.setJSType(getNativeType(NUMBER_TYPE));
+      case BIGINT_OR_NUMBER, BIGINT_OR_OTHER -> n.setJSType(getNativeType(BIGINT_NUMBER));
     }
     return scope;
   }
@@ -1666,21 +1552,15 @@ class TypeInference extends DataFlowAnalysis<Node, FlowScope> {
       n.setJSType(getNativeType(NO_TYPE));
     } else {
       switch (leftBigIntPresence) {
-        case NO_BIGINT:
-          n.setJSType(getNativeType(NUMBER_TYPE));
-          break;
-        case ALL_BIGINT:
-          n.setJSType(getNativeType(BIGINT_TYPE));
-          break;
-        case BIGINT_OR_NUMBER:
-          n.setJSType(getNativeType(BIGINT_NUMBER));
-          break;
-        case BIGINT_OR_OTHER:
-          // In the case of arithmetic operations, BigInts are only compatible with other BigInts.
-          // So if bigint is in a union with anything but number (and even then they both have to be
-          // {bigint|number}), then an error is reported.
-          n.setJSType(getNativeType(NO_TYPE));
-          break;
+        case NO_BIGINT -> n.setJSType(getNativeType(NUMBER_TYPE));
+        case ALL_BIGINT -> n.setJSType(getNativeType(BIGINT_TYPE));
+        case BIGINT_OR_NUMBER -> n.setJSType(getNativeType(BIGINT_NUMBER));
+        case BIGINT_OR_OTHER ->
+            // In the case of arithmetic operations, BigInts are only compatible with other BigInts.
+            // So if bigint is in a union with anything but number (and even then they both have to
+            // be
+            // {bigint|number}), then an error is reported.
+            n.setJSType(getNativeType(NO_TYPE));
       }
     }
     return scope;
@@ -1707,8 +1587,7 @@ class TypeInference extends DataFlowAnalysis<Node, FlowScope> {
 
   private FlowScope traverseClassMemberRhs(Node member, FlowScope scope) {
     switch (member.getToken()) {
-      case MEMBER_FIELD_DEF:
-      case COMPUTED_FIELD_DEF:
+      case MEMBER_FIELD_DEF, COMPUTED_FIELD_DEF -> {
         Node rhs = getRhsOfField(member);
         if (rhs != null) {
           TypedScope computedFieldDefTypedScope = scopeCreator.createScope(member);
@@ -1722,31 +1601,29 @@ class TypeInference extends DataFlowAnalysis<Node, FlowScope> {
           }
         }
         return scope;
-      case MEMBER_FUNCTION_DEF:
-      case COMPUTED_PROP:
-      case BLOCK:
-      case GETTER_DEF:
-      case SETTER_DEF:
+      }
+      case MEMBER_FUNCTION_DEF, COMPUTED_PROP, BLOCK, GETTER_DEF, SETTER_DEF -> {
         return scope;
-      default:
-        throw new AssertionError();
+      }
+      default -> throw new AssertionError();
     }
   }
 
   private static @Nullable Node getRhsOfField(Node fieldNode) {
     switch (fieldNode.getToken()) {
-      case MEMBER_FIELD_DEF:
+      case MEMBER_FIELD_DEF -> {
         if (fieldNode.hasOneChild()) {
           return fieldNode.getFirstChild();
         }
         return null;
-      case COMPUTED_FIELD_DEF:
+      }
+      case COMPUTED_FIELD_DEF -> {
         if (fieldNode.hasTwoChildren()) {
           return fieldNode.getSecondChild();
         }
         return null;
-      default:
-        throw new AssertionError();
+      }
+      default -> throw new AssertionError();
     }
   }
 
@@ -2023,7 +1900,7 @@ class TypeInference extends DataFlowAnalysis<Node, FlowScope> {
 
     // Handle assertions that enforce expressions evaluate to true.
     switch (assertionFunctionSpec.getAssertionKind()) {
-      case TRUTHY:
+      case TRUTHY -> {
         // Handle arbitrary expressions within the assert.
         // e.g. given `assert(typeof x === 'string')`, the resulting scope will infer x to be a
         // string.
@@ -2033,9 +1910,8 @@ class TypeInference extends DataFlowAnalysis<Node, FlowScope> {
         // Build the result of the assertExpression
         JSType truthyType = getJSType(assertedNode).restrictByNotNullOrUndefined();
         callNode.setJSType(truthyType);
-        break;
-
-      case MATCHES_RETURN_TYPE:
+      }
+      case MATCHES_RETURN_TYPE -> {
         // Handle assertions that enforce expressions match the return type of the function
         FunctionType callType = JSType.toMaybeFunctionType(left.getJSType());
         JSType assertedType = callType != null ? callType.getReturnType() : unknownType;
@@ -2050,7 +1926,7 @@ class TypeInference extends DataFlowAnalysis<Node, FlowScope> {
         if (assertedNodeName != null && type.differsFrom(narrowed)) {
           scope = narrowScope(scope, assertedNode, narrowed);
         }
-        break;
+      }
     }
 
     return scope;
@@ -2104,8 +1980,7 @@ class TypeInference extends DataFlowAnalysis<Node, FlowScope> {
    * target, if it's a function expression.
    */
   private void updateBind(Node n) {
-    CodingConvention.Bind bind =
-        compiler.getCodingConvention().describeFunctionBind(n, false, true);
+    CodingConvention.Bind bind = compiler.getCodingConvention().describeFunctionBind(n, true);
     if (bind == null) {
       return;
     }
@@ -2349,11 +2224,11 @@ class TypeInference extends DataFlowAnalysis<Node, FlowScope> {
     ctorType = ctorType.restrictByNotNullOrUndefined();
 
     FunctionType ctorFnType = ctorType.toMaybeFunctionType();
-    if (ctorFnType == null && ctorType instanceof FunctionType) {
+    if (ctorFnType == null && ctorType instanceof FunctionType functionType) {
       // If ctorType is a NoObjectType, then toMaybeFunctionType will
       // return null. But NoObjectType implements the FunctionType
       // interface, precisely because it can validly construct objects.
-      ctorFnType = (FunctionType) ctorType;
+      ctorFnType = functionType;
     }
 
     if (ctorFnType == null || !ctorFnType.isConstructor()) {
@@ -2416,36 +2291,70 @@ class TypeInference extends DataFlowAnalysis<Node, FlowScope> {
   }
 
   private void inferGetElemType(Node n) {
+    JSType objType = getJSType(n.getFirstChild()).restrictByNotNullOrUndefined();
     Node indexKey = n.getLastChild();
     JSType indexType = getJSType(indexKey);
-    JSType inferredType = unknownType;
-    if (indexType.isSymbolValueType()) {
+
+    final JSType inferredType;
+    if (indexType.isKnownSymbolValueType()) {
+      inferredType = dereferenceKnownSymbolProp(objType, indexType.toMaybeKnownSymbolType());
+    } else if (indexType.isSymbolValueType()) {
       // For now, allow symbols definitions/access on any type. In the future only allow them
       // on the subtypes for which they are defined.
-      // TODO(b/77474174): Type well known symbol accesses.
+      // TODO(b/77474174): be stricter about accesses for non-well-known symbols
+      inferredType = unknownType;
     } else {
-      JSType type = getJSType(n.getFirstChild()).restrictByNotNullOrUndefined();
-
-      // If this is a union type, then we must extract type arguments from each option.
-      UnionType.Builder argumentTypes = UnionType.builder(registry);
-      Collection<JSType> alternates =
-          type.isUnionType() ? type.toMaybeUnionType().getAlternates() : ImmutableList.of(type);
-      for (JSType option : alternates) {
-        TemplateTypeMap typeMap = option.getTemplateTypeMap();
-        if (!typeMap.hasTemplateType(registry.getObjectElementKey())) {
-          // This isn't an array or object, drop out.
-          argumentTypes = null;
-          break;
-        }
-
-        // Extract the element type and add all options to our set of alternates.
-        argumentTypes.addAlternate(typeMap.getResolvedTemplateType(registry.getObjectElementKey()));
-      }
-
-      // Unwrap the union if possible, and fail if we had no alternates.
-      inferredType = (argumentTypes == null) ? null : argumentTypes.build();
+      inferredType = dereferenceIndexSignature(objType);
     }
     n.setJSType(inferredType != null ? inferredType : unknownType);
+  }
+
+  private @Nullable JSType dereferenceKnownSymbolProp(JSType obj, KnownSymbolType indexSymbol) {
+    // If this is a union type, then we must extract type arguments from each option.
+    UnionType.Builder argumentTypes = UnionType.builder(registry);
+    Collection<JSType> alternates =
+        obj.isUnionType() ? obj.toMaybeUnionType().getAlternates() : ImmutableList.of(obj);
+    Property.Key key = new Property.SymbolKey(indexSymbol);
+    for (JSType option : alternates) {
+      if (option.toMaybeObjectType() == null) {
+        // This isn't an array or object, drop out.
+        argumentTypes = null;
+        break;
+      }
+
+      // Extract the element type and add all options to our set of alternates.
+      JSType propertyType = option.toMaybeObjectType().findPropertyType(key);
+      if (propertyType == null) {
+        // this union member doesn't have the property. just make it unknown.
+        argumentTypes = null;
+        break;
+      }
+      argumentTypes.addAlternate(propertyType);
+    }
+
+    // Unwrap the union if possible, and fail if we had no alternates.
+    return (argumentTypes == null) ? null : argumentTypes.build();
+  }
+
+  private @Nullable JSType dereferenceIndexSignature(JSType obj) {
+    // If this is a union type, then we must extract type arguments from each option.
+    UnionType.Builder argumentTypes = UnionType.builder(registry);
+    Collection<JSType> alternates =
+        obj.isUnionType() ? obj.toMaybeUnionType().getAlternates() : ImmutableList.of(obj);
+    for (JSType option : alternates) {
+      TemplateTypeMap typeMap = option.getTemplateTypeMap();
+      if (!typeMap.hasTemplateType(registry.getObjectElementKey())) {
+        // This isn't an array or object, drop out.
+        argumentTypes = null;
+        break;
+      }
+
+      // Extract the element type and add all options to our set of alternates.
+      argumentTypes.addAlternate(typeMap.getResolvedTemplateType(registry.getObjectElementKey()));
+    }
+
+    // Unwrap the union if possible, and fail if we had no alternates.
+    return (argumentTypes == null) ? null : argumentTypes.build();
   }
 
   private FlowScope traverseGetProp(Node n, FlowScope scope) {
@@ -2464,16 +2373,12 @@ class TypeInference extends DataFlowAnalysis<Node, FlowScope> {
   // Sets the appropriate type on the OptChain node `n` after its children have been traversed.
   private FlowScope setOptChainNodeTypeAfterChildrenTraversed(
       Node n, FlowScope scopeAfterChildren) {
-    switch (n.getToken()) {
-      case OPTCHAIN_GETPROP:
-        return setGetPropNodeTypeAfterChildrenTraversed(n, scopeAfterChildren);
-      case OPTCHAIN_GETELEM:
-        return setGetElemNodeTypeAfterChildrenTraversed(n, scopeAfterChildren);
-      case OPTCHAIN_CALL:
-        return setCallNodeTypeAfterChildrenTraversed(n, scopeAfterChildren);
-      default:
-        throw new IllegalStateException("Illegal token inside finishTraversingOptChain");
-    }
+    return switch (n.getToken()) {
+      case OPTCHAIN_GETPROP -> setGetPropNodeTypeAfterChildrenTraversed(n, scopeAfterChildren);
+      case OPTCHAIN_GETELEM -> setGetElemNodeTypeAfterChildrenTraversed(n, scopeAfterChildren);
+      case OPTCHAIN_CALL -> setCallNodeTypeAfterChildrenTraversed(n, scopeAfterChildren);
+      default -> throw new IllegalStateException("Illegal token inside finishTraversingOptChain");
+    };
   }
 
   /**
@@ -2754,17 +2659,14 @@ class TypeInference extends DataFlowAnalysis<Node, FlowScope> {
   }
 
   private BooleanOutcomePair traverseWithinShortCircuitingBinOp(Node n, FlowScope scope) {
-    switch (n.getToken()) {
-      case AND:
-        return traverseAnd(n, scope);
-
-      case OR:
-        return traverseOr(n, scope);
-
-      default:
+    return switch (n.getToken()) {
+      case AND -> traverseAnd(n, scope);
+      case OR -> traverseOr(n, scope);
+      default -> {
         scope = traverse(n, scope);
-        return newBooleanOutcomePair(n.getJSType(), scope);
-    }
+        yield newBooleanOutcomePair(n.getJSType(), scope);
+      }
+    };
   }
 
   private FlowScope traverseAwait(Node await, FlowScope scope) {

@@ -132,8 +132,14 @@ public final class FeatureSet implements Serializable {
           Feature.REGEXP_LOOKBEHIND);
 
   // According to https://compat-table.github.io/compat-table/es2016plus/ this should include all
-  // features through ES2023.
+  // features through ES2023. So once LangVersion.ES2023 is added, this should be updated to
+  // include it.
   public static final FeatureSet BROWSER_2024 = ES2021_MODULES;
+
+  // According to https://compat-table.github.io/compat-table/es2016plus/ this should include all
+  // features through ES2024, except for the latest unicode versions for the /v regexp flag, which
+  // isn't disqualifying. So once LangVersion.ES2024 is added, this should be updated to include it.
+  public static final FeatureSet BROWSER_2025 = ES2021_MODULES;
 
   public static final FeatureSet ALL = ES_UNSUPPORTED.with(LangVersion.TYPESCRIPT.features());
 
@@ -166,6 +172,9 @@ public final class FeatureSet implements Serializable {
 
   /** Specific features that can be included in a FeatureSet. */
   public enum Feature {
+    // ES3 features
+    REGEXP_SYNTAX("RegExp syntax", LangVersion.ES3),
+
     // ES5 features
     ES3_KEYWORDS_AS_IDENTIFIERS("ES3 keywords as identifiers", LangVersion.ES5),
     GETTER("getters", LangVersion.ES5),
@@ -175,31 +184,32 @@ public final class FeatureSet implements Serializable {
     TRAILING_COMMA("trailing comma", LangVersion.ES5),
 
     // ES2015 features (besides modules): all stable browsers are now fully compliant
+    // go/keep-sorted start
+    ARRAY_DESTRUCTURING("array destructuring", LangVersion.ES2015),
     ARRAY_PATTERN_REST("array pattern rest", LangVersion.ES2015),
     ARROW_FUNCTIONS("arrow function", LangVersion.ES2015),
     BINARY_LITERALS("binary literal", LangVersion.ES2015),
     BLOCK_SCOPED_FUNCTION_DECLARATION("block-scoped function declaration", LangVersion.ES2015),
     CLASSES("class", LangVersion.ES2015),
-    CLASS_EXTENDS("class extends", LangVersion.ES2015),
     CLASS_GETTER_SETTER("class getters/setters", LangVersion.ES2015),
     COMPUTED_PROPERTIES("computed property", LangVersion.ES2015),
     CONST_DECLARATIONS("const declaration", LangVersion.ES2015),
     DEFAULT_PARAMETERS("default parameter", LangVersion.ES2015),
-    ARRAY_DESTRUCTURING("array destructuring", LangVersion.ES2015),
-    OBJECT_DESTRUCTURING("object destructuring", LangVersion.ES2015),
-    EXTENDED_OBJECT_LITERALS("extended object literal", LangVersion.ES2015),
     FOR_OF("for-of loop", LangVersion.ES2015),
     GENERATORS("generator", LangVersion.ES2015),
     LET_DECLARATIONS("let declaration", LangVersion.ES2015),
     MEMBER_DECLARATIONS("member declaration", LangVersion.ES2015),
     NEW_TARGET("new.target", LangVersion.ES2015),
+    OBJECT_DESTRUCTURING("object destructuring", LangVersion.ES2015),
     OCTAL_LITERALS("octal literal", LangVersion.ES2015),
     REGEXP_FLAG_U("RegExp flag 'u'", LangVersion.ES2015),
     REGEXP_FLAG_Y("RegExp flag 'y'", LangVersion.ES2015),
     REST_PARAMETERS("rest parameter", LangVersion.ES2015),
+    SHORTHAND_OBJECT_PROPERTIES("shorthand object property", LangVersion.ES2015),
     SPREAD_EXPRESSIONS("spread expression", LangVersion.ES2015),
     SUPER("super", LangVersion.ES2015),
     TEMPLATE_LITERALS("template literal", LangVersion.ES2015),
+    // go/keep-sorted end
 
     // ES modules
     MODULES("modules", LangVersion.ES2015),
@@ -253,17 +263,31 @@ public final class FeatureSet implements Serializable {
     // ES_NEXT: Features that are fully supported, but part of a language version that is not yet
     // fully supported
 
+    // Polyfill implementations can target "es_next" as their fromLang so we need to ensure that
+    // the "es_next" version name is distinct from the latest dated version so we don't incorrectly
+    // prune those polyfills.
+    ES_NEXT_RUNTIME("es_next runtime", LangVersion.ES_NEXT),
+
     // ES_UNSTABLE: Features fully supported in checks, but not fully supported everywhere else
-    PUBLIC_CLASS_FIELDS("Public class fields", LangVersion.ES_UNSTABLE), // Part of ES2022
+
+    // Polyfill implementations can target "es_unstable" as their fromLang so we need to ensure that
+    // the "es_unstable" version name is distinct from the latest dated version so we don't
+    // incorrectly prune those polyfills.
+    ES_UNSTABLE_RUNTIME("es_unstable runtime", LangVersion.ES_UNSTABLE),
+
+    PUBLIC_CLASS_FIELDS("Public class fields", LangVersion.ES_NEXT), // Part of ES2022
 
     // ES 2022 adds https://github.com/tc39/proposal-class-static-block
     CLASS_STATIC_BLOCK("Class static block", LangVersion.ES_UNSTABLE),
 
     // ES_UNSUPPORTED: Features that we can parse, but not yet supported in all checks
+    // Part of ES2022. Support will improve as implementation progresses.
+    PRIVATE_CLASS_PROPERTIES("Private class properties", LangVersion.ES_UNSUPPORTED),
 
     // TypeScript type syntax that will never be implemented in browsers. Only used as an indicator
     // to the CodeGenerator that it should handle type syntax.
-    TYPE_ANNOTATION("type annotation", LangVersion.TYPESCRIPT);
+    TYPE_ANNOTATION("type annotation", LangVersion.TYPESCRIPT),
+    ; // End of list.
 
     private final String name;
     private final LangVersion version;
@@ -444,7 +468,7 @@ public final class FeatureSet implements Serializable {
 
   @Override
   public boolean equals(Object other) {
-    return other instanceof FeatureSet && ((FeatureSet) other).features.equals(features);
+    return other instanceof FeatureSet featureSet && featureSet.features.equals(features);
   }
 
   @Override
@@ -459,40 +483,22 @@ public final class FeatureSet implements Serializable {
 
   /** Parses known strings into feature sets. */
   public static FeatureSet valueOf(String name) {
-    switch (name) {
-      case "es3":
-        return ES3;
-      case "es5":
-        return ES5;
-      case "es_2015":
-      case "es6":
-        return ES2015;
-      case "es_2016":
-      case "es7":
-        return ES2016;
-      case "es_2017":
-      case "es8":
-        return ES2017;
-      case "es_2018":
-      case "es9":
-        return ES2018;
-      case "es_2019":
-        return ES2019;
-      case "es_2020":
-        return ES2020;
-      case "es_2021":
-        return ES2021;
-      case "es_next":
-        return ES_NEXT;
-      case "es_unstable":
-        return ES_UNSTABLE;
-      case "es_unsupported":
-        return ES_UNSUPPORTED;
-      case "all":
-        return ALL;
-      default:
-        throw new IllegalArgumentException("No such FeatureSet: " + name);
-    }
+    return switch (name) {
+      case "es3" -> ES3;
+      case "es5" -> ES5;
+      case "es_2015", "es6" -> ES2015;
+      case "es_2016", "es7" -> ES2016;
+      case "es_2017", "es8" -> ES2017;
+      case "es_2018", "es9" -> ES2018;
+      case "es_2019" -> ES2019;
+      case "es_2020" -> ES2020;
+      case "es_2021" -> ES2021;
+      case "es_next" -> ES_NEXT;
+      case "es_unstable" -> ES_UNSTABLE;
+      case "es_unsupported" -> ES_UNSUPPORTED;
+      case "all" -> ALL;
+      default -> throw new IllegalArgumentException("No such FeatureSet: " + name);
+    };
   }
 
   /**

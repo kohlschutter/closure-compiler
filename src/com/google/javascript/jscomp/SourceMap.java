@@ -30,7 +30,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
-import org.jspecify.nullness.Nullable;
+import org.jspecify.annotations.Nullable;
 
 /**
  * Collects information mapping the generated (compiled) source back to its original source for
@@ -95,8 +95,7 @@ public final class SourceMap {
      * @param location the location to transform
      * @return the transformed location or null if not transformed
      */
-    @Nullable
-    String map(String location);
+    @Nullable String map(String location);
   }
 
   /** Simple {@link LocationMapping} that strips a prefix from a location. */
@@ -123,9 +122,9 @@ public final class SourceMap {
 
     @Override
     public boolean equals(Object other) {
-      if (other instanceof PrefixLocationMapping) {
-        return ((PrefixLocationMapping) other).prefix.equals(prefix)
-            && ((PrefixLocationMapping) other).replacement.equals(replacement);
+      if (other instanceof PrefixLocationMapping prefixLocationMapping) {
+        return prefixLocationMapping.prefix.equals(prefix)
+            && prefixLocationMapping.replacement.equals(replacement);
       } else {
         return false;
       }
@@ -140,6 +139,7 @@ public final class SourceMap {
   private final SourceMapGenerator generator;
   private List<? extends LocationMapping> prefixMappings = ImmutableList.of();
   private final Map<String, String> sourceLocationFixupCache = new LinkedHashMap<>();
+
   /**
    * A mapping derived from input source maps. Maps back to input sources that inputs to this
    * compilation job have been generated from, and used to create a source map that maps all the way
@@ -189,7 +189,17 @@ public final class SourceMap {
 
     if (mapping != null) {
       OriginalMapping sourceMapping = mapping.getSourceMapping(sourceFileName, lineNo, charNo);
-      if (sourceMapping != null) {
+      if (sourceMapping == null) {
+        // The source file does not have a input map. We consider this to be an
+        // original source range and include it in the output map.
+      } else if (sourceMapping.equals(OriginalMapping.getDefaultInstance())) {
+        // The source file does have an input map, but it does not map the
+        // location. We consider this to be a synthetic code range and do not
+        // include it in the output map.
+        // TODO b/452676030 - Report the sourceless mapping.
+        return;
+      } else {
+        // The source file mapped our code range to its original source location.
         sourceFileName = sourceMapping.getOriginalFile();
         lineNo = sourceMapping.getLineNumber();
         charNo = sourceMapping.getColumnPosition();

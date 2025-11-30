@@ -26,7 +26,7 @@ import com.google.javascript.rhino.Node;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map.Entry;
-import org.jspecify.nullness.Nullable;
+import org.jspecify.annotations.Nullable;
 
 /**
  * A compiler pass to optimize function return results. Currently this pass looks for results that
@@ -176,23 +176,17 @@ class OptimizeReturns implements OptimizeCalls.CallGraphCompilerPass, CompilerPa
   }
 
   private static boolean isCandidateFunction(Node n) {
-    switch (n.getToken()) {
-      case FUNCTION:
-        // Named function expression can be recursive, this creates an alias of the name, meaning
-        // it might be used in an unexpected way.
-        return !NodeUtil.isNamedFunctionExpression(n);
-      case COMMA:
-      case CAST:
-        return isCandidateFunction(n.getLastChild());
-      case HOOK:
-        return isCandidateFunction(n.getSecondChild()) && isCandidateFunction(n.getLastChild());
-      case OR:
-      case AND:
-      case COALESCE:
-        return isCandidateFunction(n.getFirstChild()) && isCandidateFunction(n.getLastChild());
-      default:
-        return false;
-    }
+    return switch (n.getToken()) {
+      case FUNCTION ->
+          // Named function expression can be recursive, this creates an alias of the name, meaning
+          // it might be used in an unexpected way.
+          !NodeUtil.isNamedFunctionExpression(n);
+      case COMMA, CAST -> isCandidateFunction(n.getLastChild());
+      case HOOK -> isCandidateFunction(n.getSecondChild()) && isCandidateFunction(n.getLastChild());
+      case OR, AND, COALESCE ->
+          isCandidateFunction(n.getFirstChild()) && isCandidateFunction(n.getLastChild());
+      default -> false;
+    };
   }
 
   /**
@@ -228,32 +222,23 @@ class OptimizeReturns implements OptimizeCalls.CallGraphCompilerPass, CompilerPa
   // So we don't need to update the graph.
   private boolean isRemovableValue(Node n) {
     switch (n.getToken()) {
-      case TEMPLATELIT:
-      case ARRAYLIT:
+      case TEMPLATELIT, ARRAYLIT -> {
         for (Node child = n.getFirstChild(); child != null; child = child.getNext()) {
           if ((!child.isEmpty()) && !isRemovableValue(child)) {
             return false;
           }
         }
         return true;
-
-      case REGEXP:
-      case STRINGLIT:
-      case NUMBER:
-      case NULL:
-      case TRUE:
-      case FALSE:
-      case TEMPLATELIT_STRING:
+      }
+      case REGEXP, STRINGLIT, NUMBER, NULL, TRUE, FALSE, TEMPLATELIT_STRING -> {
         return true;
-      case TEMPLATELIT_SUB:
-      case CAST:
-      case NOT:
-      case VOID:
-      case NEG:
+      }
+      case TEMPLATELIT_SUB, CAST, NOT, VOID, NEG -> {
         return isRemovableValue(n.getFirstChild());
-
-      default:
+      }
+      default -> {
         return false;
+      }
     }
   }
 }

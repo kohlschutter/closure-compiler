@@ -18,7 +18,6 @@ package com.google.javascript.jscomp;
 
 import static com.google.common.truth.Truth.assertThat;
 
-import com.google.common.base.Joiner;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.debugging.sourcemap.SourceMapConsumer;
@@ -51,16 +50,16 @@ public final class SourceMapTest extends SourceMapTestCase {
         Compiler.joinPathParts("pre", "file1"),
         "alert(2);",
         Compiler.joinPathParts("pre", "file2"),
-        Joiner.on('\n')
-            .join(
-                "{",
-                "\"version\":3,",
-                "\"file\":\"testcode\",",
-                "\"lineCount\":1,",
-                "\"mappings\":\"A,aAAAA,KAAA,CAAM,CAAN,C,CCAAA,KAAA,CAAM,CAAN;\",",
-                "\"sources\":[\"file1\",\"file2\"],",
-                "\"names\":[\"alert\"]",
-                "}\n"));
+        """
+        {
+        "version":3,
+        "file":"testcode",
+        "lineCount":1,
+        "mappings":"A,aAAAA,KAAA,CAAM,CAAN,C,CCAAA,KAAA,CAAM,CAAN;",
+        "sources":["file1","file2"],
+        "names":["alert"]
+        }
+        """);
   }
 
   @Test
@@ -72,16 +71,16 @@ public final class SourceMapTest extends SourceMapTestCase {
         Compiler.joinPathParts("pre", "file1"),
         "alert(2);",
         "pre/file2",
-        Joiner.on('\n')
-            .join(
-                "{",
-                "\"version\":3,",
-                "\"file\":\"testcode\",",
-                "\"lineCount\":1,",
-                "\"mappings\":\"A,aAAAA,KAAA,CAAM,CAAN,C,CCAAA,KAAA,CAAM,CAAN;\",",
-                "\"sources\":[\"src1\",\"src2\"],",
-                "\"names\":[\"alert\"]",
-                "}\n"));
+        """
+        {
+        "version":3,
+        "file":"testcode",
+        "lineCount":1,
+        "mappings":"A,aAAAA,KAAA,CAAM,CAAN,C,CCAAA,KAAA,CAAM,CAAN;",
+        "sources":["src1","src2"],
+        "names":["alert"]
+        }
+        """);
   }
 
   @Test
@@ -96,16 +95,16 @@ public final class SourceMapTest extends SourceMapTestCase {
         "file1",
         "alert(2);",
         "file2",
-        Joiner.on('\n')
-            .join(
-                "{",
-                "\"version\":3,",
-                "\"file\":\"testcode\",",
-                "\"lineCount\":1,",
-                "\"mappings\":\"A,aAAAA,KAAA,CAAM,CAAN,C,CCAAA,KAAA,CAAM,CAAN;\",",
-                "\"sources\":[\"x\",\"y\"],",
-                "\"names\":[\"alert\"]",
-                "}\n"));
+        """
+        {
+        "version":3,
+        "file":"testcode",
+        "lineCount":1,
+        "mappings":"A,aAAAA,KAAA,CAAM,CAAN,C,CCAAA,KAAA,CAAM,CAAN;",
+        "sources":["x","y"],
+        "names":["alert"]
+        }
+        """);
   }
 
   @Test
@@ -120,16 +119,16 @@ public final class SourceMapTest extends SourceMapTestCase {
         "file1",
         "alert(2);",
         "file2",
-        Joiner.on('\n')
-            .join(
-                "{",
-                "\"version\":3,",
-                "\"file\":\"testcode\",",
-                "\"lineCount\":1,",
-                "\"mappings\":\"A,aAAAA,KAAA,CAAM,CAAN,C,CCAAA,KAAA,CAAM,CAAN;\",",
-                "\"sources\":[\"x\",\"y2\"],",
-                "\"names\":[\"alert\"]",
-                "}\n"));
+        """
+        {
+        "version":3,
+        "file":"testcode",
+        "lineCount":1,
+        "mappings":"A,aAAAA,KAAA,CAAM,CAAN,C,CCAAA,KAAA,CAAM,CAAN;",
+        "sources":["x","y2"],
+        "names":["alert"]
+        }
+        """);
   }
 
   @Test
@@ -140,16 +139,16 @@ public final class SourceMapTest extends SourceMapTestCase {
         "file1",
         "alert(2);",
         "file2",
-        Joiner.on('\n')
-            .join(
-                "{",
-                "\"version\":3,",
-                "\"file\":\"mapped/testcode\",",
-                "\"lineCount\":1,",
-                "\"mappings\":\"A,aAAAA,KAAA,CAAM,CAAN,C,CCAAA,KAAA,CAAM,CAAN;\",",
-                "\"sources\":[\"mapped/file1\",\"mapped/file2\"],",
-                "\"names\":[\"alert\"]",
-                "}\n"));
+        """
+        {
+        "version":3,
+        "file":"mapped/testcode",
+        "lineCount":1,
+        "mappings":"A,aAAAA,KAAA,CAAM,CAAN,C,CCAAA,KAAA,CAAM,CAAN;",
+        "sources":["mapped/file1","mapped/file2"],
+        "names":["alert"]
+        }
+        """);
   }
 
   // This is taken from SourceMapJsLangTest. That test can't run under J2CL because it
@@ -174,6 +173,45 @@ public final class SourceMapTest extends SourceMapTestCase {
         fileContent,
         secondCompilation.generatedSource,
         secondCompilation.sourceMapFileContent);
+  }
+
+  // Tests that when a generated intermediate file contains a source map, we
+  // only map the source positions that the intermediate map specifies. If a
+  // mapping is sourceless, it is omitted from the final source map.
+  @Test
+  public void testIntermediateFilesOmitUnmappedCode() throws IOException {
+    // This map has been massaged to have a sourceless mapping covering the `alert` identifier.
+    // Pretend it was synthetically generated during transforms.
+    String generatedFile = "generated.tsx.js";
+    String generatedSource = "'use strict';function foo(){}alert(foo());";
+    String generatedSourceMap =
+        """
+        {
+        "version":3,
+        "file":"testcode",
+        "lineCount":1,
+        "mappings":"A,aAAAA,QAASA,IAAG,EAAG,E,KAAG,CAAMA,GAAA,EAAN;",
+        "sources":["foo.js"],
+        "names":["foo"]
+        }
+        """;
+
+    inputMaps.put(
+        generatedFile, new SourceMapInput(SourceFile.fromCode("sourcemap", generatedSourceMap)));
+
+    RunResult compilation = compile(generatedSource, generatedFile);
+    assertThat(compilation.sourceMapFileContent)
+        .isEqualTo(
+            """
+            {
+            "version":3,
+            "file":"testcode",
+            "lineCount":1,
+            "mappings":"A,aAAAA,QAASA,IAAG,EAAG,E,MAASA,GAAAA;",
+            "sources":["foo.js"],
+            "names":["foo"]
+            }
+            """);
   }
 
   @Override

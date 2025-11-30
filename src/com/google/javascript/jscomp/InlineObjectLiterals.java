@@ -220,23 +220,17 @@ class InlineObjectLiterals implements CompilerPass {
         // Also, ES5 getters/setters aren't handled by this pass.
         for (Node child = val.getFirstChild(); child != null; child = child.getNext()) {
           switch (child.getToken()) {
+            case GETTER_DEF, SETTER_DEF, COMPUTED_PROP, OBJECT_SPREAD -> {
               // ES5 get/set not supported.
-            case GETTER_DEF:
-            case SETTER_DEF:
               // Don't inline computed property names
-            case COMPUTED_PROP:
               // Spread can overwrite any preceding prop if there are matching keys.
               // TODO(b/126567617): Allow inlining props declared after the SPREAD.
-            case OBJECT_SPREAD:
               return false;
-
-            case MEMBER_FUNCTION_DEF:
-            case STRING_KEY:
-              break;
-
-            default:
-              throw new IllegalStateException(
-                  "Unexpected child of OBJECTLIT: " + child.toStringTree());
+            }
+            case MEMBER_FUNCTION_DEF, STRING_KEY -> {}
+            default ->
+                throw new IllegalStateException(
+                    "Unexpected child of OBJECTLIT: " + child.toStringTree());
           }
 
           validProperties.add(child.getString());
@@ -411,9 +405,11 @@ class InlineObjectLiterals implements CompilerPass {
         // Assuming scopeRoot is a BLOCK, then we want to insert at the top of the block, before the
         // first statement.
         vnode = scopeRoot.getFirstChild();
-        // Some scope-creating nodes might not be BLOCK nodes (e.g. SWITCH)
+        // Some scope-creating nodes might not be BLOCK nodes
         if (!NodeUtil.isStatement(vnode) && NodeUtil.isStatement(scopeRoot)) {
           vnode = scopeRoot;
+        } else if (scopeRoot.isSwitchBody()) {
+          vnode = scopeRoot.getParent();
         }
       } else {
         // Find the beginning of the function body / script.

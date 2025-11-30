@@ -18,7 +18,7 @@ package com.google.javascript.jscomp;
 
 import com.google.javascript.jscomp.CompilerOptions.PropertyCollapseLevel;
 import com.google.javascript.jscomp.CompilerOptions.Reach;
-import org.jspecify.nullness.Nullable;
+import org.jspecify.annotations.Nullable;
 
 /**
  * A CompilationLevel represents the level of optimization that should be
@@ -48,44 +48,39 @@ public enum CompilationLevel {
    * names and variables, removing code which is never called, etc.
    */
   ADVANCED_OPTIMIZATIONS,
+
+  /**
+   * TRANSPILE_ONLY only transpiles the code down to the requested `--language_out level`, including
+   * the addition of polyfills. This mode will fully parse the JS files it is running, so that it
+   * can find syntax that needs to be transpiled down and discover required polyfills. This mode
+   * will not perform any optimizations.
+   */
+  TRANSPILE_ONLY,
   ;
 
   public static @Nullable CompilationLevel fromString(String value) {
     if (value == null) {
       return null;
     }
-    switch (value) {
-      case "BUNDLE":
-        return CompilationLevel.BUNDLE;
-      case "WHITESPACE_ONLY":
-      case "WHITESPACE":
-        return CompilationLevel.WHITESPACE_ONLY;
-      case "SIMPLE_OPTIMIZATIONS":
-      case "SIMPLE":
-        return CompilationLevel.SIMPLE_OPTIMIZATIONS;
-      case "ADVANCED_OPTIMIZATIONS":
-      case "ADVANCED":
-        return CompilationLevel.ADVANCED_OPTIMIZATIONS;
-      default:
-        return null;
-    }
+    return switch (value) {
+      case "BUNDLE" -> CompilationLevel.BUNDLE;
+      case "WHITESPACE_ONLY", "WHITESPACE" -> CompilationLevel.WHITESPACE_ONLY;
+      case "TRANSPILE_ONLY" -> CompilationLevel.TRANSPILE_ONLY;
+      case "SIMPLE_OPTIMIZATIONS", "SIMPLE" -> CompilationLevel.SIMPLE_OPTIMIZATIONS;
+      case "ADVANCED_OPTIMIZATIONS", "ADVANCED" -> CompilationLevel.ADVANCED_OPTIMIZATIONS;
+      default -> null;
+    };
   }
 
   private CompilationLevel() {}
 
   public void setOptionsForCompilationLevel(CompilerOptions options) {
     switch (this) {
-      case BUNDLE:
-        break;
-      case WHITESPACE_ONLY:
-        applyBasicCompilationOptions(options);
-        break;
-      case SIMPLE_OPTIMIZATIONS:
-        applySafeCompilationOptions(options);
-        break;
-      case ADVANCED_OPTIMIZATIONS:
-        applyFullCompilationOptions(options);
-        break;
+      case BUNDLE -> {}
+      case WHITESPACE_ONLY -> applyBasicCompilationOptions(options);
+      case SIMPLE_OPTIMIZATIONS -> applySafeCompilationOptions(options);
+      case TRANSPILE_ONLY -> applyTranspileOnlyOptions(options);
+      case ADVANCED_OPTIMIZATIONS -> applyFullCompilationOptions(options);
     }
   }
 
@@ -104,6 +99,34 @@ public enum CompilationLevel {
   }
 
   /**
+   * Gets options that only transpile the code, including polyfills.
+   *
+   * @param options The CompilerOptions object to set the options on.
+   */
+  private static void applyTranspileOnlyOptions(CompilerOptions options) {
+    // ReplaceIdGenerators is on by default, but should not run in TRANSPILE_ONLY mode.
+    options.replaceIdGenerators = false;
+
+    options.setClosurePass(true);
+    options.setRenamingPolicy(VariableRenamingPolicy.OFF, PropertyRenamingPolicy.OFF);
+    options.setInlineVariables(Reach.NONE);
+    options.setInlineFunctions(Reach.NONE);
+    options.setFoldConstants(false);
+    options.setCoalesceVariableNames(false);
+    options.setDeadAssignmentElimination(false);
+    options.setCollapseVariableDeclarations(false);
+    options.convertToDottedProperties = false;
+    options.labelRenaming = false;
+    options.setRemoveUnusedVariables(Reach.NONE);
+    options.collapseObjectLiterals = false;
+    /*
+     * Turn off protecting side-effect free nodes by making them parameters to a extern function
+     * call.
+     */
+    options.setProtectHiddenSideEffects(false);
+  }
+
+  /**
    * Add options that are safe. Safe means options that won't break the
    * JavaScript code even if no symbols are exported and no coding convention
    * is used.
@@ -113,7 +136,7 @@ public enum CompilationLevel {
     // TODO(tjgq): Remove this.
     options.setDependencyOptions(DependencyOptions.sortOnly());
 
-    // ReplaceIdGenerators is on by default, but should run in simple mode.
+    // ReplaceIdGenerators is on by default, but should not run in simple mode.
     options.replaceIdGenerators = false;
 
     // Does not call applyBasicCompilationOptions(options) because the call to
@@ -130,8 +153,6 @@ public enum CompilationLevel {
     options.setCollapseVariableDeclarations(true);
     options.convertToDottedProperties = true;
     options.labelRenaming = true;
-    options.setRemoveUnreachableCode(true);
-    options.setOptimizeArgumentsArray(true);
     options.setRemoveUnusedVariables(Reach.LOCAL_ONLY);
     options.collapseObjectLiterals = true;
     options.setProtectHiddenSideEffects(true);
@@ -161,8 +182,6 @@ public enum CompilationLevel {
     options.setCollapseVariableDeclarations(true);
     options.setConvertToDottedProperties(true);
     options.setLabelRenaming(true);
-    options.setRemoveUnreachableCode(true);
-    options.setOptimizeArgumentsArray(true);
     options.setCollapseObjectLiterals(true);
     options.setProtectHiddenSideEffects(true);
 
@@ -205,16 +224,13 @@ public enum CompilationLevel {
    */
   public void setTypeBasedOptimizationOptions(CompilerOptions options) {
     switch (this) {
-      case ADVANCED_OPTIMIZATIONS:
+      case ADVANCED_OPTIMIZATIONS -> {
         options.setDisambiguateProperties(true);
         options.setAmbiguateProperties(true);
         options.setInlineProperties(true);
         options.setUseTypesForLocalOptimization(true);
-        break;
-      case SIMPLE_OPTIMIZATIONS:
-      case WHITESPACE_ONLY:
-      case BUNDLE:
-        break;
+      }
+      case SIMPLE_OPTIMIZATIONS, WHITESPACE_ONLY, BUNDLE, TRANSPILE_ONLY -> {}
     }
   }
 
@@ -229,7 +245,7 @@ public enum CompilationLevel {
     // Global variables and properties names can't conflict.
     options.reserveRawExports = false;
     switch (this) {
-      case SIMPLE_OPTIMIZATIONS:
+      case SIMPLE_OPTIMIZATIONS -> {
         // Enable global variable optimizations (but not property optimizations)
         options.setVariableRenaming(VariableRenamingPolicy.ALL);
         options.setCollapsePropertiesLevel(PropertyCollapseLevel.MODULE_EXPORT);
@@ -238,11 +254,8 @@ public enum CompilationLevel {
         options.setInlineFunctions(Reach.ALL);
         options.setInlineVariables(Reach.ALL);
         options.setRemoveUnusedVariables(Reach.ALL);
-        break;
-      case ADVANCED_OPTIMIZATIONS:
-      case WHITESPACE_ONLY:
-      case BUNDLE:
-        break;
+      }
+      case ADVANCED_OPTIMIZATIONS, WHITESPACE_ONLY, BUNDLE, TRANSPILE_ONLY -> {}
     }
   }
 }

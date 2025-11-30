@@ -24,7 +24,7 @@ import java.util.ArrayList;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Objects;
-import org.jspecify.nullness.Nullable;
+import org.jspecify.annotations.Nullable;
 
 /**
  * A collection of references. Can be subclassed to apply checks or store additional state when
@@ -179,6 +179,16 @@ public final class ReferenceCollection implements Iterable<Reference>, Serializa
     }
 
     return true;
+  }
+
+  /** Returns whether the variable is ever referenced weakly. */
+  boolean isReferencedWeakly() {
+    for (Reference ref : references) {
+      if (NodeUtil.isGoogWeakUsageCall(ref.getParent())) {
+        return true;
+      }
+    }
+    return false;
   }
 
   /**

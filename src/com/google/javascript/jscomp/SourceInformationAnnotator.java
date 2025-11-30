@@ -19,7 +19,7 @@ package com.google.javascript.jscomp;
 import static com.google.common.base.Preconditions.checkState;
 
 import com.google.javascript.rhino.Node;
-import org.jspecify.nullness.Nullable;
+import org.jspecify.annotations.Nullable;
 
 /**
  * Annotates nodes with information from their original input file before the compiler performs work
@@ -80,21 +80,12 @@ public final class SourceInformationAnnotator extends NodeTraversal.AbstractPost
    * post-mangling and in source maps.
    */
   public static boolean isStringNodeRequiringOriginalName(Node node) {
-    switch (node.getToken()) {
-      case GETPROP:
-      case OPTCHAIN_GETPROP:
-      case NAME:
-        return true;
-
-      case MEMBER_FUNCTION_DEF:
-      case GETTER_DEF:
-      case SETTER_DEF:
-      case STRING_KEY:
-        return node.getParent().isObjectLit() && !node.isQuotedStringKey();
-
-      default:
-        return false;
-    }
+    return switch (node.getToken()) {
+      case GETPROP, OPTCHAIN_GETPROP, NAME -> true;
+      case MEMBER_FUNCTION_DEF, GETTER_DEF, SETTER_DEF, STRING_KEY ->
+          node.getParent().isObjectLit() && !node.isQuotedStringKey();
+      default -> false;
+    };
   }
 
   private static void setOriginalName(Node n, String name) {

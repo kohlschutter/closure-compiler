@@ -22,7 +22,6 @@ import static com.google.common.base.Preconditions.checkState;
 
 import com.google.javascript.jscomp.ControlFlowGraph.Branch;
 import com.google.javascript.jscomp.NodeTraversal.AbstractPostOrderCallback;
-import com.google.javascript.jscomp.base.format.SimpleFormat;
 import com.google.javascript.jscomp.graph.Annotation;
 import com.google.javascript.jscomp.graph.DiGraph.DiGraphEdge;
 import com.google.javascript.jscomp.graph.DiGraph.DiGraphNode;
@@ -36,7 +35,7 @@ import java.util.Map;
 import java.util.PriorityQueue;
 import java.util.Queue;
 import java.util.Set;
-import org.jspecify.nullness.Nullable;
+import org.jspecify.annotations.Nullable;
 
 /**
  * A framework to help writing static program analysis.
@@ -322,21 +321,17 @@ abstract class DataFlowAnalysis<N, L extends LatticeElement> {
 
     final L result;
     switch (inEdges.size()) {
-      case 0:
+      case 0 -> {
         return;
-
-      case 1:
-        result = this.getInputFromEdge(inEdges.get(0));
-        break;
-
-      default:
-        {
-          FlowJoiner<L> joiner = this.createFlowJoiner();
-          for (DiGraphEdge<N, Branch> inEdge : inEdges) {
-            joiner.joinFlow(this.getInputFromEdge(inEdge));
-          }
-          result = joiner.finish();
+      }
+      case 1 -> result = this.getInputFromEdge(inEdges.get(0));
+      default -> {
+        FlowJoiner<L> joiner = this.createFlowJoiner();
+        for (DiGraphEdge<N, Branch> inEdge : inEdges) {
+          joiner.joinFlow(this.getInputFromEdge(inEdge));
         }
+        result = joiner.finish();
+      }
     }
 
     if (this.isForward()) {
@@ -399,7 +394,7 @@ abstract class DataFlowAnalysis<N, L extends LatticeElement> {
 
     @Override
     public final String toString() {
-      return SimpleFormat.format("IN: %s OUT: %s", in, out);
+      return String.format("IN: %s OUT: %s", in, out);
     }
   }
 

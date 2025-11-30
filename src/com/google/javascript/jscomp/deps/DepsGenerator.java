@@ -23,11 +23,11 @@ import com.google.common.collect.ImmutableListMultimap;
 import com.google.common.collect.Multimaps;
 import com.google.javascript.jscomp.CheckLevel;
 import com.google.javascript.jscomp.Compiler;
+import com.google.javascript.jscomp.CompilerInput;
 import com.google.javascript.jscomp.CompilerOptions;
 import com.google.javascript.jscomp.DiagnosticType;
 import com.google.javascript.jscomp.ErrorManager;
 import com.google.javascript.jscomp.JSError;
-import com.google.javascript.jscomp.JsAst;
 import com.google.javascript.jscomp.LazyParsedDependencyInfo;
 import com.google.javascript.jscomp.SourceFile;
 import com.google.javascript.jscomp.deps.DependencyInfo.Require;
@@ -46,7 +46,7 @@ import java.util.Set;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 import java.util.stream.Collectors;
-import org.jspecify.nullness.Nullable;
+import org.jspecify.annotations.Nullable;
 
 /**
  * Generates deps.js files by scanning JavaScript files for
@@ -280,17 +280,14 @@ public class DepsGenerator {
           boolean providerIsEs6Module = provider.isEs6Module();
 
           switch (require.getType()) {
-            case ES6_IMPORT:
+            case ES6_IMPORT -> {
               if (!providerIsEs6Module) {
                 reportEs6ImportForNonEs6Module(provider, depInfo);
               }
-              break;
-            case GOOG_REQUIRE_SYMBOL:
-            case PARSED_FROM_DEPS:
-              break;
-            case COMMON_JS:
-            case COMPILER_MODULE:
-              throw new IllegalStateException("Unexpected import type: " + require.getType());
+            }
+            case GOOG_REQUIRE_SYMBOL, PARSED_FROM_DEPS -> {}
+            case COMMON_JS, COMPILER_MODULE ->
+                throw new IllegalStateException("Unexpected import type: " + require.getType());
           }
         }
       }
@@ -472,7 +469,7 @@ public class DepsGenerator {
             jsParser.parseFile(
                 file.getName(), closureRelativePath,
                 file.getCode());
-        depInfo = new LazyParsedDependencyInfo(depInfo, new JsAst(file), compiler);
+        depInfo = new LazyParsedDependencyInfo(depInfo, new CompilerInput(file), compiler);
 
         // Skip externs files, which should never be loaded.
         if (depInfo.getHasExternsAnnotation()) {

@@ -16,8 +16,6 @@
 
 package com.google.javascript.jscomp.integration;
 
-import static com.google.javascript.jscomp.base.JSCompStrings.lines;
-
 import com.google.common.collect.ImmutableList;
 import com.google.javascript.jscomp.CompilationLevel;
 import com.google.javascript.jscomp.CompilerOptions;
@@ -69,13 +67,14 @@ public final class ES2022IntegrationTest extends IntegrationTestCase {
 
     testNoWarnings(
         options,
-        lines(
-            "class MyClass {", //
-            "  /** @type {number} */",
-            "  x = 2;",
-            "  y;",
-            "}",
-            "console.log(new MyClass().x);"));
+        """
+        class MyClass {
+          /** @type {number} */
+          x = 2;
+          y;
+        }
+        console.log(new MyClass().x);
+        """);
   }
 
   @Test
@@ -85,12 +84,13 @@ public final class ES2022IntegrationTest extends IntegrationTestCase {
 
     testNoWarnings(
         options,
-        lines(
-            "class MyClass {", //
-            "  x = '';",
-            "  y;",
-            "}",
-            "console.log(new MyClass().x);"));
+        """
+        class MyClass {
+          x = '';
+          y;
+        }
+        console.log(new MyClass().x);
+        """);
   }
 
   @Test
@@ -100,11 +100,12 @@ public final class ES2022IntegrationTest extends IntegrationTestCase {
     test(
         options,
         new String[] {
-          lines(
-              "class MyClass {", //
-              "  /** @type {string} */",
-              "  x = 2;",
-              "}")
+          """
+          class MyClass {
+            /** @type {string} */
+            x = 2;
+          }
+          """
         },
         /* compiled= */ null,
         new DiagnosticGroup[] {DiagnosticGroups.CHECK_TYPES});
@@ -117,14 +118,15 @@ public final class ES2022IntegrationTest extends IntegrationTestCase {
 
     testNoWarnings(
         options,
-        lines(
-            "/** @dict */", //
-            "class MyClass {",
-            "  [3 + 4] = 5;",
-            "  [6];",
-            "  'x' = 2;",
-            "}",
-            "console.log(new MyClass()[6]);"));
+        """
+        /** @dict */
+        class MyClass {
+          [3 + 4] = 5;
+          [6];
+          'x' = 2;
+        }
+        console.log(new MyClass()[6]);
+        """);
   }
 
   @Test
@@ -134,12 +136,13 @@ public final class ES2022IntegrationTest extends IntegrationTestCase {
 
     testNoWarnings(
         options,
-        lines(
-            "/** @dict */", //
-            "class MyClass {",
-            "  ['x'] = 5;",
-            "}",
-            "console.log(new MyClass()['x']);"));
+        """
+        /** @dict */
+        class MyClass {
+          ['x'] = 5;
+        }
+        console.log(new MyClass()['x']);
+        """);
   }
 
   // deprecated warnings aren't given on computed fields:
@@ -150,13 +153,14 @@ public final class ES2022IntegrationTest extends IntegrationTestCase {
 
     testNoWarnings(
         options,
-        lines(
-            "/** @unrestricted */", //
-            "class MyClass {",
-            "  /** @deprecated */",
-            "  ['x'] = 5;",
-            "  baz() { return this['x']; }",
-            "}"));
+        """
+        /** @unrestricted */
+        class MyClass {
+          /** @deprecated */
+          ['x'] = 5;
+          baz() { return this['x']; }
+        }
+        """);
   }
 
   @Test
@@ -167,10 +171,11 @@ public final class ES2022IntegrationTest extends IntegrationTestCase {
     test(
         options,
         new String[] {
-          lines(
-              "class MyClass {", //
-              "  [3 + 4] = 5;",
-              "}"),
+          """
+          class MyClass {
+            [3 + 4] = 5;
+          }
+          """,
         },
         /* compiled= */ null,
         new DiagnosticGroup[] {DiagnosticGroups.CHECK_TYPES});
@@ -182,16 +187,17 @@ public final class ES2022IntegrationTest extends IntegrationTestCase {
 
     testNoWarnings(
         options,
-        lines(
-            "/** @unrestricted */",
-            "class MyClass {", //
-            "  a = 2;",
-            "  ['b'] = 'hi';",
-            "  'c' = 5;",
-            "  2 = 4;",
-            "  d;",
-            "  ['e'];",
-            "}"));
+        """
+        /** @unrestricted */
+        class MyClass {
+          a = 2;
+          ['b'] = 'hi';
+          'c' = 5;
+          2 = 4;
+          d;
+          ['e'];
+        }
+        """);
   }
 
   @Test
@@ -203,16 +209,21 @@ public final class ES2022IntegrationTest extends IntegrationTestCase {
 
     test(
         options,
-        lines(
-            "class C {",
-            "  f1 = 1;",
-            "static f2 = 3;",
-            "  m1() {return this.f1}",
-            "}",
-            "console.log(new C().f1);",
-            "console.log(C.f2);",
-            "console.log(new C().m1());"),
-        lines("console.log(1);", "console.log(3);", "console.log(1);"));
+        """
+        class C {
+          f1 = 1;
+        static f2 = 3;
+          m1() {return this.f1}
+        }
+        console.log(new C().f1);
+        console.log(C.f2);
+        console.log(new C().m1());
+        """,
+        """
+        console.log(1);
+        console.log(3);
+        console.log(1);
+        """);
   }
 
   @Test
@@ -224,20 +235,26 @@ public final class ES2022IntegrationTest extends IntegrationTestCase {
 
     test(
         options,
-        lines(
-            "class MyClass {", //
-            "  /** @type {number} */",
-            "  f1 = 2;",
-            "  /** @type {string} */",
-            "  f2 = 'hi';",
-            "  f3 = function() { return this.f1 };",
-            "  m1() { return this.f2; }",
-            "}",
-            "console.log(new MyClass().f1);",
-            "console.log(new MyClass().f2);",
-            "console.log(new MyClass().f3());",
-            "console.log(new MyClass().m1());"),
-        lines("console.log(2);", "console.log('hi');", "console.log(2);", "console.log('hi');"));
+        """
+        class MyClass {
+          /** @type {number} */
+          f1 = 2;
+          /** @type {string} */
+          f2 = 'hi';
+          f3 = function() { return this.f1 };
+          m1() { return this.f2; }
+        }
+        console.log(new MyClass().f1);
+        console.log(new MyClass().f2);
+        console.log(new MyClass().f3());
+        console.log(new MyClass().m1());
+        """,
+        """
+        console.log(2);
+        console.log('hi');
+        console.log(2);
+        console.log('hi');
+        """);
   }
 
   @Test
@@ -247,27 +264,29 @@ public final class ES2022IntegrationTest extends IntegrationTestCase {
 
     test(
         options,
-        lines(
-            "/** @dict */",
-            "class MyClass {", //
-            "  ['f1'] = 2;",
-            "  'f2' = 'hi';",
-            "  2 = 4;",
-            "  ['m1']() { return this['f1']; }",
-            "}",
-            "console.log(new MyClass()['f1']);",
-            "console.log(new MyClass()[2]);",
-            "console.log(new MyClass()['m1']());"),
-        lines(
-            "class a {", //
-            "  f1 = 2;",
-            "  f2= 'hi';",
-            "  2 = 4;",
-            "  m1() { return this.f1; }",
-            "}",
-            "console.log((new a).f1);",
-            "console.log((new a)[2]);",
-            "console.log((new a).m1());"));
+        """
+        /** @dict */
+        class MyClass {
+          ['f1'] = 2;
+          'f2' = 'hi';
+          2 = 4;
+          ['m1']() { return this['f1']; }
+        }
+        console.log(new MyClass()['f1']);
+        console.log(new MyClass()[2]);
+        console.log(new MyClass()['m1']());
+        """,
+        """
+        class a {
+          f1 = 2;
+          f2= 'hi';
+          2 = 4;
+          m1() { return this.f1; }
+        }
+        console.log((new a).f1);
+        console.log((new a)[2]);
+        console.log((new a).m1());
+        """);
   }
 
   @Test
@@ -277,25 +296,27 @@ public final class ES2022IntegrationTest extends IntegrationTestCase {
 
     test(
         options,
-        lines(
-            "/** @unrestricted */",
-            "class MyClass {", //
-            "  f1 = 1;",
-            "  ['a'] = 'hi';",
-            "  ['f3'] = function() { return this.f1; };",
-            "}",
-            "console.log(new MyClass().f1);",
-            "console.log(new MyClass()['a']);",
-            "console.log(new MyClass()['f3']());"),
-        lines(
-            "class a {", //
-            "  b = 1;",
-            "  a = 'hi';",
-            "  f3 = function() { return this.b; };",
-            "}",
-            "console.log(1);",
-            "console.log(new a().a);",
-            "console.log(new a().f3());"));
+        """
+        /** @unrestricted */
+        class MyClass {
+          f1 = 1;
+          ['a'] = 'hi';
+          ['f3'] = function() { return this.f1; };
+        }
+        console.log(new MyClass().f1);
+        console.log(new MyClass()['a']);
+        console.log(new MyClass()['f3']());
+        """,
+        """
+        class a {
+          b = 1;
+          a = 'hi';
+          f3 = function() { return this.b; };
+        }
+        console.log(1);
+        console.log(new a().a);
+        console.log(new a().f3());
+        """);
   }
 
   @Test
@@ -304,25 +325,20 @@ public final class ES2022IntegrationTest extends IntegrationTestCase {
 
     test(
         options,
-        lines(
-            "/** @unrestricted */",
-            "class MyClass {", //
-            "  static f1 = alert(2);",
-            "  ['f2'] = 'hi';",
-            "  'f3' = 5;",
-            "  4 = 4;",
-            "  f5;",
-            "  ['f6'] = alert(1);",
-            "}"),
-        lines(
-            "/** @unrestricted */",
-            "class a {", //
-            "  static a = alert(2);",
-            "  f2 = 'hi';",
-            "  f3 = 5;",
-            "  4 = 4;",
-            "  f6 = alert(1);",
-            "}"));
+        """
+        /** @unrestricted */
+        class MyClass {
+          static f1 = alert(2);
+          ['f2'] = 'hi';
+          'f3' = 5;
+          4 = 4;
+          f5;
+          ['f6'] = alert(1);
+        }
+        """,
+        """
+        alert(2);
+        """);
   }
 
   @Test
@@ -338,18 +354,33 @@ public final class ES2022IntegrationTest extends IntegrationTestCase {
 
     test(
         options,
-        lines(
-            "window.test = function() {",
-            "var x = 0;",
-            "/** @unrestricted */",
-            "class MyClass {", //
-            "  static f1 = x;",
-            "  static [(x = 1)] = 1;", // (x = 1) executes before assigning 'static f1 = x'
-            "}",
-            "console.log(MyClass.f1);", // prints 1
-            "};"),
+        """
+        window.test = function() {
+          var x = 0;
+          /** @unrestricted */
+          class MyClass {
+            static f1 = x;
+            static[(x = 1)] = 1;  // (x = 1) executes before assigning 'static f1 = x'
+          }
+          console.log(MyClass.f1);  // prints 1
+        };
+        """,
         // TODO(b/189993301): this should be logging '1' instead
-        lines("window.a = function() { console.log(0); };"));
+        """
+        window.c = function() {
+          var b = 0, d = b = 1;
+          class a {
+            static a;
+            static[d];
+            static b() {
+              a.a = b;
+              a[d] = 1
+            }
+          }
+          a.b();
+          console.log(a.a)
+        }
+        """);
   }
 
   @Test
@@ -365,88 +396,79 @@ public final class ES2022IntegrationTest extends IntegrationTestCase {
 
     test(
         options,
-        lines(
-            "window.test = function() {",
-            "var x = 0;",
-            "/** @unrestricted */",
-            "class MyClass {", //
-            "  static f1 = x;",
-            "  static [(x = 1)]() {};", // (x = 1) executes before assigning 'static f1 = x'
-            "}",
-            "console.log(MyClass.f1);", // prints 1
-            "};"),
-        lines(
-            "window.b=function(){",
-            "  var a=0;",
-            "  class c {",
-            "    static a=a;",
-            "    static [a=1](){}",
-            "  }",
-            "  console.log(c.a)",
-            "};"));
+        """
+        window.test = function() {
+          var x = 0;
+          /** @unrestricted */
+          class MyClass {
+            static f1 = x;
+            static[(x = 1)]() {};  // (x = 1) executes before assigning 'static f1 = x'
+          }
+          console.log(MyClass.f1);  // prints 1
+        };
+        """,
+        """
+        window.c = function() {
+          var b = 0, d = b = 1;
+          class a {
+            static a;
+            static[d]() {}
+            static b() {
+              a.a = b
+            }
+          }
+          a.b();
+          console.log(a.a)
+        }
+        """);
   }
 
   @Test
   public void testEs6RewriteClassExtendsExpression() {
     CompilerOptions options = createCompilerOptions();
 
-    String code =
-        lines(
-            "/** @unrestricted */",
-            "class __PRIVATE_WebChannelConnection extends class __PRIVATE_RestConnection {",
-            "  constructor(e) {",
-            "    this.databaseInfo = e, this.databaseId = e.databaseId;",
-            "  }",
-            "} {",
-            "  constructor(e) {",
-            "    super(e), this.forceLongPolling = e.forceLongPolling, this.autoDetectLongPolling"
-                + " = e.autoDetectLongPolling, this.useFetchStreams = e.useFetchStreams,"
-                + " this.longPollingOptions = e.longPollingOptions;",
-            "    console.log('test');",
-            "  }",
-            "}");
-    String expectedCodeNonTraspiled =
-        lines(
-            "class __PRIVATE_WebChannelConnection extends class __PRIVATE_RestConnection {",
-            "  constructor(e) {",
-            "    this.databaseInfo = e, this.databaseId = e.databaseId;",
-            "  }",
-            "} {",
-            "  constructor(e) {",
-            "    super(e), this.forceLongPolling = e.forceLongPolling, this.autoDetectLongPolling ="
-                + " ",
-            "    e.autoDetectLongPolling, this.useFetchStreams = e.useFetchStreams,"
-                + " this.longPollingOptions = ",
-            "    e.longPollingOptions;",
-            "    console.log('test');",
-            "  }",
-            "}\n");
-
-    String expectedCodeTranspiled =
-        lines(
-            "const i0$classdecl$var0 = class {",
-            "  constructor(e) {",
-            "    this.databaseInfo = e, this.databaseId = e.databaseId;",
-            "  }",
-            "};",
-            "const i0$classextends$var0 = i0$classdecl$var0;",
-            "class __PRIVATE_WebChannelConnection extends i0$classdecl$var0 {",
-            "  constructor(e) {",
-            "    super(e), this.forceLongPolling = e.forceLongPolling, this.autoDetectLongPolling ="
-                + " ",
-            "    e.autoDetectLongPolling, this.useFetchStreams = e.useFetchStreams,"
-                + " this.longPollingOptions = ",
-            "    e.longPollingOptions;",
-            "    console.log('test');",
-            "  }",
-            "}\n");
-
-    options.setLanguageIn(LanguageMode.UNSTABLE);
-    options.setLanguageOut(LanguageMode.ECMASCRIPT_2019);
-    test(options, code, expectedCodeTranspiled);
+    String src =
+        """
+        /** @unrestricted */
+        class __PRIVATE_WebChannelConnection extends class __PRIVATE_RestConnection {
+          constructor(e) {
+            this.databaseInfo = e, this.databaseId = e.databaseId;
+          }
+        }
+        {
+          constructor(e) {
+            super(e), this.forceLongPolling = e.forceLongPolling,
+                      this.autoDetectLongPolling = e.autoDetectLongPolling,
+                      this.useFetchStreams = e.useFetchStreams,
+                      this.longPollingOptions = e.longPollingOptions;
+            console.log('test');
+          }
+        }
+        """;
+    String expected =
+        """
+        const $jscomp$classExtends$98447280$0 = class {
+          constructor(e) {
+            this.databaseInfo = e, this.databaseId = e.databaseId
+          }
+        };
+        class __PRIVATE_WebChannelConnection extends $jscomp$classExtends$98447280$0 {
+          constructor(e) {
+            super(e), this.forceLongPolling = e.forceLongPolling,
+                      this.autoDetectLongPolling = e.autoDetectLongPolling,
+                      this.useFetchStreams = e.useFetchStreams,
+                      this.longPollingOptions = e.longPollingOptions;
+            console.log('test')
+          }
+        }
+        """;
 
     options.setLanguageIn(LanguageMode.UNSTABLE);
     options.setLanguageOut(LanguageMode.UNSTABLE);
-    test(options, code, expectedCodeNonTraspiled);
+    test(options, src, expected);
+
+    options.setLanguageIn(LanguageMode.UNSTABLE);
+    options.setLanguageOut(LanguageMode.ECMASCRIPT_2019);
+    test(options, src, expected);
   }
 }

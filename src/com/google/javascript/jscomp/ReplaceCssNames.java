@@ -21,7 +21,6 @@ import static com.google.common.base.Preconditions.checkState;
 
 import com.google.common.base.Joiner;
 import com.google.javascript.jscomp.NodeTraversal.AbstractPostOrderCallback;
-import com.google.javascript.jscomp.base.format.SimpleFormat;
 import com.google.javascript.rhino.IR;
 import com.google.javascript.rhino.Node;
 import java.util.ArrayList;
@@ -30,7 +29,7 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-import org.jspecify.nullness.Nullable;
+import org.jspecify.annotations.Nullable;
 
 /**
  * ReplaceCssNames replaces occurrences of goog.getCssName('foo') with a shorter version from the
@@ -292,7 +291,7 @@ class ReplaceCssNames implements CompilerPass {
           cssClosureClassesQualifiedName);
     }
 
-    private class SassGeneratedCssTsExpert {
+    private static class SassGeneratedCssTsExpert {
       public final boolean hasSassGeneratedCssTsJsDoc;
       public final JSError sassGeneratedCssTsValidationError;
       public final boolean isCssClosureClassesAssignment;
@@ -310,7 +309,7 @@ class ReplaceCssNames implements CompilerPass {
       }
     }
 
-    private class TraversalState {
+    private static class TraversalState {
       public boolean inSassGeneratedCssTsScript;
       public String cssClosureClassesQualifiedName;
     }
@@ -373,15 +372,11 @@ class ReplaceCssNames implements CompilerPass {
       checkNotNull(callNode.getParent(), "already replaced: %s", callNode);
       final int childCount = callNode.getChildCount();
       switch (childCount) {
-        case 2:
-          replaceWithConvertedSingleArg();
-          break;
-        case 3:
-          replaceWithConcatenatedArgs();
-          break;
-        default:
-          throw new IllegalStateException(
-              SimpleFormat.format("invalid number of children: %s for: %s", childCount, callNode));
+        case 2 -> replaceWithConvertedSingleArg();
+        case 3 -> replaceWithConcatenatedArgs();
+        default ->
+            throw new IllegalStateException(
+                String.format("invalid number of children: %s for: %s", childCount, callNode));
       }
     }
 
@@ -431,30 +426,29 @@ class ReplaceCssNames implements CompilerPass {
       final int childCount = callNode.getChildCount();
       final Node firstArg = checkNotNull(callNode.getSecondChild(), callNode);
       switch (childCount) {
-        case 2:
+        case 2 -> {
           checkState(firstArg.isStringLit(), "not a string literal: %s", firstArg);
           return firstArg.getString();
-        case 3:
+        }
+        case 3 -> {
           final Node secondArg = checkNotNull(firstArg.getNext(), firstArg);
           checkState(secondArg.isStringLit(), "not a string literal: %s", secondArg);
           return secondArg.getString();
-        default:
-          throw new IllegalStateException(
-              SimpleFormat.format("invalid number of children: %s for: %s", childCount, callNode));
+        }
+        default ->
+            throw new IllegalStateException(
+                String.format("invalid number of children: %s for: %s", childCount, callNode));
       }
     }
   }
 
   private @Nullable JSError validateGetCssNameCall(Node callNode) {
     int childCount = callNode.getChildCount();
-    switch (childCount) {
-      case 2:
-        return validateSingleArgGetCssNameCall(callNode);
-      case 3:
-        return validateTwoArgGetCssNameCall(callNode);
-      default:
-        return JSError.make(callNode, INVALID_NUM_ARGUMENTS_ERROR, String.valueOf(childCount));
-    }
+    return switch (childCount) {
+      case 2 -> validateSingleArgGetCssNameCall(callNode);
+      case 3 -> validateTwoArgGetCssNameCall(callNode);
+      default -> JSError.make(callNode, INVALID_NUM_ARGUMENTS_ERROR, String.valueOf(childCount));
+    };
   }
 
   private @Nullable JSError validateSingleArgGetCssNameCall(Node callNode) {
@@ -512,27 +506,37 @@ class ReplaceCssNames implements CompilerPass {
     String[] parts = name.split("-");
     if (symbolMap != null) {
       String replacement = null;
-      switch (symbolMap.getStyle()) {
-        case BY_WHOLE:
-          replacement = symbolMap.get(name);
-          if (replacement == null) {
-            compiler.report(JSError.make(n, UNKNOWN_SYMBOL_WARNING, name, name));
-            return;
-          }
-          break;
-        case BY_PART:
-          String[] replaced = new String[parts.length];
-          for (int i = 0; i < parts.length; i++) {
-            String part = symbolMap.get(parts[i]);
-            if (part == null) {
-              // If we can't encode all parts, don't encode any of it.
-              compiler.report(JSError.make(n, UNKNOWN_SYMBOL_WARNING, parts[i], name));
+
+      if (name.startsWith("--")) {
+        // Force BY_WHOLE style for CSS variables.
+        replacement = symbolMap.get(name);
+        if (replacement == null) {
+          compiler.report(JSError.make(n, UNKNOWN_SYMBOL_WARNING, name, name));
+          return;
+        }
+      } else {
+        switch (symbolMap.getStyle()) {
+          case BY_WHOLE -> {
+            replacement = symbolMap.get(name);
+            if (replacement == null) {
+              compiler.report(JSError.make(n, UNKNOWN_SYMBOL_WARNING, name, name));
               return;
             }
-            replaced[i] = part;
           }
-          replacement = Joiner.on("-").join(replaced);
-          break;
+          case BY_PART -> {
+            String[] replaced = new String[parts.length];
+            for (int i = 0; i < parts.length; i++) {
+              String part = symbolMap.get(parts[i]);
+              if (part == null) {
+                // If we can't encode all parts, don't encode any of it.
+                compiler.report(JSError.make(n, UNKNOWN_SYMBOL_WARNING, parts[i], name));
+                return;
+              }
+              replaced[i] = part;
+            }
+            replacement = Joiner.on("-").join(replaced);
+          }
+        }
       }
       n.setString(replacement);
     }

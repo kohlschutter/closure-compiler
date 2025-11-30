@@ -21,7 +21,7 @@ import com.google.javascript.jscomp.colors.Color;
 import com.google.javascript.jscomp.colors.StandardColors;
 import com.google.javascript.rhino.IR;
 import com.google.javascript.rhino.Node;
-import org.jspecify.nullness.Nullable;
+import org.jspecify.annotations.Nullable;
 
 /** An optimization pass to re-write J2CL Equality.$same. */
 public class J2clEqualitySameRewriterPass extends AbstractPeepholeOptimization {
@@ -174,25 +174,13 @@ public class J2clEqualitySameRewriterPass extends AbstractPeepholeOptimization {
   }
 
   private static NodeValue getKnownLiteralValue(Node n) {
-    switch (NodeUtil.getKnownValueType(n)) {
-      case VOID:
-        return NodeUtil.canBeSideEffected(n) ? NodeValue.UNKNOWN : NodeValue.NULL_OR_UNDEFINED;
-      case NULL:
-        return NodeValue.NULL_OR_UNDEFINED;
-
-      case STRING:
-      case BOOLEAN:
-      case OBJECT:
-      case BIGINT:
-        return NodeValue.NON_NULL;
-
-      case NUMBER:
-        return NodeValue.NUMBER;
-
-      case UNDETERMINED:
-        return NodeValue.UNKNOWN;
-    }
-    throw new AssertionError("Unknown ValueType");
+    return switch (NodeUtil.getKnownValueType(n)) {
+      case VOID -> NodeUtil.canBeSideEffected(n) ? NodeValue.UNKNOWN : NodeValue.NULL_OR_UNDEFINED;
+      case NULL -> NodeValue.NULL_OR_UNDEFINED;
+      case STRING, BOOLEAN, OBJECT, BIGINT -> NodeValue.NON_NULL;
+      case NUMBER -> NodeValue.NUMBER;
+      case UNDETERMINED -> NodeValue.UNKNOWN;
+    };
   }
 
   private static boolean isEqualitySameCall(Node node) {

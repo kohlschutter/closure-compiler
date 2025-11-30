@@ -20,13 +20,14 @@ import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.base.Preconditions.checkState;
 import static com.google.common.collect.Streams.stream;
 import static java.lang.Math.min;
+import static java.util.Objects.requireNonNull;
 
-import com.google.auto.value.AutoValue;
 import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSetMultimap;
 import com.google.common.collect.SetMultimap;
+import com.google.errorprone.annotations.InlineMe;
 import com.google.javascript.jscomp.AbstractCompiler;
 import com.google.javascript.jscomp.CodePrinter;
 import com.google.javascript.jscomp.CompilerOptions;
@@ -43,7 +44,7 @@ import java.util.Collection;
 import java.util.Map;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
-import org.jspecify.nullness.Nullable;
+import org.jspecify.annotations.Nullable;
 
 /**
  * Object representing the fixes to apply to the source code to create the
@@ -318,25 +319,18 @@ public final class SuggestedFix {
     public Builder rename(Node n, String name, boolean replaceNameSubtree) {
       final Node range;
       switch (n.getToken()) {
-        case CALL:
-        case TAGGED_TEMPLATELIT:
+        case CALL, TAGGED_TEMPLATELIT -> {
           return this.rename(n.getFirstChild(), name, replaceNameSubtree);
-
-        case GETPROP:
-          range = replaceNameSubtree ? subtreeRangeOfIdentifier(n) : n;
-          break;
-
-        case STRINGLIT:
+        }
+        case GETPROP -> range = replaceNameSubtree ? subtreeRangeOfIdentifier(n) : n;
+        case STRINGLIT -> {
           checkState(n.getParent().isGetProp(), n);
-          // Fall through
-        case STRING_KEY:
-        case NAME:
           range = n;
-          break;
-
-        default:
-          throw new UnsupportedOperationException(
-              "Rename is not implemented for this node type: " + n);
+        }
+        case STRING_KEY, NAME -> range = n;
+        default ->
+            throw new UnsupportedOperationException(
+                "Rename is not implemented for this node type: " + n);
       }
 
       replacements.put(
@@ -616,17 +610,11 @@ public final class SuggestedFix {
 
     private static Node createImportNode(
         ImportType importType, @Nullable String alias, String namespace) {
-      final String requireFlavor;
-      switch (importType) {
-        case REQUIRE:
-          requireFlavor = "require";
-          break;
-        case REQUIRE_TYPE:
-          requireFlavor = "requireType";
-          break;
-        default:
-          throw new AssertionError();
-      }
+      final String requireFlavor =
+          switch (importType) {
+            case REQUIRE -> "require";
+            case REQUIRE_TYPE -> "requireType";
+          };
 
       Node callNode = IR.call(IR.getprop(IR.name("goog"), requireFlavor), IR.string(namespace));
 
@@ -883,23 +871,36 @@ public final class SuggestedFix {
    * blobs of code, it's important that it does not contain any memory intensive objects in order to
    * keep memory to a reasonable amount.
    */
-  @AutoValue
-  public abstract static class MatchedNodeInfo {
-    static MatchedNodeInfo create(Node node, boolean closurized) {
-      return new AutoValue_SuggestedFix_MatchedNodeInfo(
-          NodeUtil.getSourceName(node),
-          node.getLineno(),
-          node.getCharno(),
-          closurized);
+  public record MatchedNodeInfo(
+      String sourceFilename, int lineno, int charno, boolean inClosurizedFile) {
+    public MatchedNodeInfo {
+      requireNonNull(sourceFilename, "sourceFilename");
     }
 
-    public abstract String getSourceFilename();
+    @InlineMe(replacement = "this.sourceFilename()")
+    public String getSourceFilename() {
+      return sourceFilename();
+    }
 
-    public abstract int getLineno();
+    @InlineMe(replacement = "this.lineno()")
+    public int getLineno() {
+      return lineno();
+    }
 
-    public abstract int getCharno();
+    @InlineMe(replacement = "this.charno()")
+    public int getCharno() {
+      return charno();
+    }
 
-    public abstract boolean isInClosurizedFile();
+    @InlineMe(replacement = "this.inClosurizedFile()")
+    public boolean isInClosurizedFile() {
+      return inClosurizedFile();
+    }
+
+    static MatchedNodeInfo create(Node node, boolean closurized) {
+      return new MatchedNodeInfo(
+          NodeUtil.getSourceName(node), node.getLineno(), node.getCharno(), closurized);
+    }
   }
 
   /**

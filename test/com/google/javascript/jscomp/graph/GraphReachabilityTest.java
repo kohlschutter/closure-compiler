@@ -18,7 +18,7 @@ package com.google.javascript.jscomp.graph;
 
 import static com.google.common.truth.Truth.assertWithMessage;
 
-import org.jspecify.nullness.Nullable;
+import org.jspecify.annotations.Nullable;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.junit.runners.JUnit4;
@@ -76,13 +76,13 @@ public final class GraphReachabilityTest {
   }
 
   public void assertReachable(String s) {
-    assertWithMessage(s + " should be reachable")
+    assertWithMessage("%s should be reachable", s)
         .that(GraphReachability.REACHABLE)
         .isSameInstanceAs(graph.getNode(s).getAnnotation());
   }
 
   public void assertNotReachable(String s) {
-    assertWithMessage(s + " should not be reachable")
+    assertWithMessage("%s should not be reachable", s)
         .that(GraphReachability.REACHABLE)
         .isNotSameInstanceAs(graph.getNode(s).getAnnotation());
   }

@@ -35,7 +35,7 @@ import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.Map;
 import java.util.Set;
-import org.jspecify.nullness.Nullable;
+import org.jspecify.annotations.Nullable;
 
 /**
  * Checks that goog.module() is used correctly.
@@ -481,25 +481,20 @@ public final class ClosureCheckModule extends AbstractModuleCallback implements 
     checkState(callNode.isCall());
     checkState(callNode.getLastChild().isStringLit());
     switch (parent.getToken()) {
-      case EXPR_RESULT:
+      case EXPR_RESULT -> {
         String key = extractFirstArgumentName(callNode);
         currentModuleInfo.importsByLongRequiredName.putIfAbsent(key, parent);
-        return;
-      case NAME:
-      case DESTRUCTURING_LHS:
-        checkShortGoogRequireCall(t, callNode, parent.getParent());
-        return;
-      case AWAIT:
+      }
+      case NAME, DESTRUCTURING_LHS -> checkShortGoogRequireCall(t, callNode, parent.getParent());
+      case AWAIT -> {
         Token grandParentToken = parent.getParent().getToken();
         if (grandParentToken.equals(Token.DESTRUCTURING_LHS)
             || grandParentToken.equals(Token.NAME)) {
           checkShortGoogRequireCall(t, callNode, parent.getGrandparent());
         }
-        return;
-      default:
-        break;
+      }
+      default -> t.report(callNode, REQUIRE_NOT_AT_TOP_LEVEL);
     }
-    t.report(callNode, REQUIRE_NOT_AT_TOP_LEVEL);
   }
 
   private void checkShortGoogRequireCall(NodeTraversal t, Node callNode, Node declaration) {
@@ -535,6 +530,11 @@ public final class ClosureCheckModule extends AbstractModuleCallback implements 
 
   private static void checkShortName(NodeTraversal t, Node shortNameNode, String namespace) {
     String nextQnamePart = shortNameNode.getString();
+    if (namespace.startsWith("google3.")) {
+      // `google3` namespaces don't provide capitalization context for the import name
+      return;
+    }
+
     String lastSegment = namespace.substring(namespace.lastIndexOf('.') + 1);
     if (nextQnamePart.equals(lastSegment) || lastSegment.isEmpty()) {
       return;

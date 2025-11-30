@@ -25,22 +25,23 @@ import com.google.javascript.jscomp.GlobalNamespace.Name;
 import com.google.javascript.jscomp.GlobalNamespace.Ref;
 import com.google.javascript.jscomp.colors.Color;
 import com.google.javascript.jscomp.colors.StandardColors;
+import com.google.javascript.jscomp.js.RuntimeJsLibManager;
 import com.google.javascript.jscomp.parsing.parser.FeatureSet.Feature;
 import com.google.javascript.rhino.IR;
 import com.google.javascript.rhino.Node;
-import com.google.javascript.rhino.QualifiedName;
 import com.google.javascript.rhino.StaticScope;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Deque;
 import java.util.List;
-import org.jspecify.nullness.Nullable;
+import org.jspecify.annotations.Nullable;
 
 /** Converts {@code super()} calls. */
 public final class Es6ConvertSuperConstructorCalls implements NodeTraversal.Callback {
   private static final String TMP_ERROR = "$jscomp$tmp$error";
   private static final String SUPER_THIS = "$jscomp$super$this";
-  private static final QualifiedName JSCOMP_INHERITS = QualifiedName.of("$jscomp.inherits");
+  private final RuntimeJsLibManager.JsLibField jscompInherits;
+  private final RuntimeJsLibManager.JsLibField jscompConstruct;
 
   /** Stores superCalls for a constructor. */
   private static final class ConstructorData {
@@ -68,6 +69,10 @@ public final class Es6ConvertSuperConstructorCalls implements NodeTraversal.Call
     this.transpilationNamespace = compiler.getTranspilationNamespace();
     this.constructorDataStack = new ArrayDeque<>();
     this.uniqueIdSupplier = compiler.getUniqueIdSupplier();
+
+    var runtimeJsLibManager = compiler.getRuntimeJsLibManager();
+    this.jscompInherits = runtimeJsLibManager.getJsLibField("$jscomp.inherits");
+    this.jscompConstruct = runtimeJsLibManager.getJsLibField("$jscomp.construct");
   }
 
   @Override
@@ -529,7 +534,7 @@ public final class Es6ConvertSuperConstructorCalls implements NodeTraversal.Call
 
     // `$jscomp.construct`
     final Node jscompDotConstruct =
-        astFactory.createQName(this.transpilationNamespace, "$jscomp.construct").srcrefTree(callee);
+        astFactory.createQName(this.transpilationNamespace, jscompConstruct).srcrefTree(callee);
 
     final Node superClassQName = superClassQNameNode.cloneTree();
 
@@ -636,20 +641,19 @@ public final class Es6ConvertSuperConstructorCalls implements NodeTraversal.Call
   }
 
   private boolean isNativeErrorClass(NodeTraversal t, String superClassName) {
-    switch (superClassName) {
-        // All Error classes listed in the ECMAScript spec as of 2016
-      case "AggregateError":
-      case "Error":
-      case "EvalError":
-      case "RangeError":
-      case "ReferenceError":
-      case "SyntaxError":
-      case "TypeError":
-      case "URIError":
-        return !isDefinedInSources(t, superClassName);
-      default:
-        return false;
-    }
+    return switch (superClassName) {
+      case "AggregateError",
+          "Error",
+          "EvalError",
+          "RangeError",
+          "ReferenceError",
+          "SyntaxError",
+          "TypeError",
+          "URIError" ->
+          // All Error classes listed in the ECMAScript spec as of 2016
+          !isDefinedInSources(t, superClassName);
+      default -> false;
+    };
   }
 
   /**
@@ -664,40 +668,39 @@ public final class Es6ConvertSuperConstructorCalls implements NodeTraversal.Call
     // - Intl.* classes were left out, because it doesn't seem worth the extra effort
     //   of handling the qualified name.
     // - Deprecated and experimental classes were left out.
-    switch (className) {
-      case "Array":
-      case "ArrayBuffer":
-      case "Boolean":
-      case "DataView":
-      case "Date":
-      case "Float32Array":
-      case "Function":
-      case "Generator":
-      case "GeneratorFunction":
-      case "Int16Array":
-      case "Int32Array":
-      case "Int8Array":
-      case "InternalError":
-      case "Map":
-      case "Number":
-      case "Object":
-      case "Promise":
-      case "Proxy":
-      case "RegExp":
-      case "Set":
-      case "String":
-      case "Symbol":
-      case "TypedArray":
-      case "Uint16Array":
-      case "Uint32Array":
-      case "Uint8Array":
-      case "Uint8ClampedArray":
-      case "WeakMap":
-      case "WeakSet":
-        return !isDefinedInSources(t, className);
-      default:
-        return false;
-    }
+    return switch (className) {
+      case "Array",
+          "ArrayBuffer",
+          "Boolean",
+          "DataView",
+          "Date",
+          "Float32Array",
+          "Function",
+          "Generator",
+          "GeneratorFunction",
+          "Int16Array",
+          "Int32Array",
+          "Int8Array",
+          "InternalError",
+          "Map",
+          "Number",
+          "Object",
+          "Promise",
+          "Proxy",
+          "RegExp",
+          "Set",
+          "String",
+          "Symbol",
+          "TypedArray",
+          "Uint16Array",
+          "Uint32Array",
+          "Uint8Array",
+          "Uint8ClampedArray",
+          "WeakMap",
+          "WeakSet" ->
+          !isDefinedInSources(t, className);
+      default -> false;
+    };
   }
 
   /**
@@ -780,7 +783,7 @@ public final class Es6ConvertSuperConstructorCalls implements NodeTraversal.Call
       return null;
     }
     Node jscompDotInherits = callNode.getFirstChild();
-    if (!JSCOMP_INHERITS.matches(jscompDotInherits)) {
+    if (!jscompInherits.matches(jscompDotInherits)) {
       return null;
     }
     Node classNameNode = checkNotNull(jscompDotInherits.getNext());

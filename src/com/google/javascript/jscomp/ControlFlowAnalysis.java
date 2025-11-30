@@ -33,7 +33,7 @@ import java.util.Comparator;
 import java.util.Deque;
 import java.util.List;
 import java.util.PriorityQueue;
-import org.jspecify.nullness.Nullable;
+import org.jspecify.annotations.Nullable;
 
 /**
  * This class computes a {@link ControlFlowGraph} for a given AST
@@ -277,17 +277,18 @@ public final class ControlFlowAnalysis implements NodeTraversal.Callback {
    */
   private boolean shouldTraverseIntoChildren(Node n, Node parent) {
     switch (n.getToken()) {
-      case FUNCTION:
+      case FUNCTION -> {
         if (shouldTraverseFunctions || n == cfg.getEntry().getValue()) {
           exceptionHandler.push(n);
           return true;
         }
         return false;
-      case TRY:
+      }
+      case TRY -> {
         exceptionHandler.push(n);
         return true;
-      default:
-        break;
+      }
+      default -> {}
     }
 
     /*
@@ -308,10 +309,7 @@ public final class ControlFlowAnalysis implements NodeTraversal.Callback {
      */
     if (parent != null) {
       switch (parent.getToken()) {
-        case FOR:
-        case FOR_IN:
-        case FOR_OF:
-        case FOR_AWAIT_OF:
+        case FOR, FOR_IN, FOR_OF, FOR_AWAIT_OF -> {
           // Only traverse the body of the for loop.
           boolean shouldTraverseForChild = n == parent.getLastChild();
           if (!shouldTraverseForChild) {
@@ -320,40 +318,38 @@ public final class ControlFlowAnalysis implements NodeTraversal.Callback {
             astPosition.put(n, astPositionCounter++);
           }
           return shouldTraverseForChild;
-
-        case DO:
+        }
+        case DO -> {
           // Only traverse the body of the do-while.
           return n != parent.getSecondChild();
-
+        }
+        case IF, WHILE, WITH, SWITCH, CASE, CATCH, LABEL -> {
           // Skip conditions, and only traverse the body of the cases
-        case IF:
-        case WHILE:
-        case WITH:
-        case SWITCH:
-        case CASE:
-        case CATCH:
-        case LABEL:
           return n != parent.getFirstChild();
-        case FUNCTION:
+        }
+        case FUNCTION -> {
           return n == parent.getLastChild();
-        case CLASS:
+        }
+        case CLASS -> {
           return shouldTraverseFunctions && n == parent.getLastChild();
-        case COMPUTED_PROP:
-        case CONTINUE:
-        case BREAK:
-        case EXPR_RESULT:
-        case VAR:
-        case LET:
-        case CONST:
-        case EXPORT:
-        case IMPORT:
-        case RETURN:
-        case THROW:
-        case MEMBER_FUNCTION_DEF:
-        case MEMBER_FIELD_DEF:
-        case COMPUTED_FIELD_DEF:
+        }
+        case COMPUTED_PROP,
+            CONTINUE,
+            BREAK,
+            EXPR_RESULT,
+            VAR,
+            LET,
+            CONST,
+            EXPORT,
+            IMPORT,
+            RETURN,
+            THROW,
+            MEMBER_FUNCTION_DEF,
+            MEMBER_FIELD_DEF,
+            COMPUTED_FIELD_DEF -> {
           return false;
-        case TRY:
+        }
+        case TRY -> {
           /* When we are done with the TRY block and there is no FINALLY block,
            * or done with both the TRY and CATCH block, then no more exceptions
            * can be handled at this TRY statement, so it can be taken out of the
@@ -364,9 +360,8 @@ public final class ControlFlowAnalysis implements NodeTraversal.Callback {
             checkState(exceptionHandler.peek() == parent);
             exceptionHandler.pop();
           }
-          break;
-        default:
-          break;
+        }
+        default -> {}
       }
       // Don't traverse further in an arrow function expression
       if (parent.hasParent() && parent.getParent().isArrowFunction() && !parent.isBlock()) {
@@ -379,74 +374,31 @@ public final class ControlFlowAnalysis implements NodeTraversal.Callback {
   @Override
   public void visit(NodeTraversal t, Node n, Node parent) {
     switch (n.getToken()) {
-      case IF:
-        handleIf(n);
-        return;
-      case WHILE:
-        handleWhile(n);
-        return;
-      case DO:
-        handleDo(n);
-        return;
-      case FOR:
-        handleFor(n);
-        return;
-      case FOR_OF:
-      case FOR_IN:
-      case FOR_AWAIT_OF:
-        handleEnhancedFor(n);
-        return;
-      case SWITCH:
-        handleSwitch(n);
-        return;
-      case CASE:
-        handleCase(n);
-        return;
-      case DEFAULT_CASE:
-        handleDefault(n);
-        return;
-      case BLOCK:
-      case ROOT:
-      case SCRIPT:
-      case MODULE_BODY:
-        handleStmtList(n);
-        return;
-      case FUNCTION:
-        handleFunction(n);
-        return;
-      case EXPR_RESULT:
-        handleExpr(n);
-        return;
-      case THROW:
-        handleThrow(n);
-        return;
-      case TRY:
-        handleTry(n);
-        return;
-      case CATCH:
-        handleCatch(n);
-        return;
-      case BREAK:
-        handleBreak(n);
-        return;
-      case CONTINUE:
-        handleContinue(n);
-        return;
-      case RETURN:
-        handleReturn(n);
-        return;
-      case WITH:
-        handleWith(n);
-        return;
-      case LABEL:
-      case CLASS_MEMBERS:
-      case MEMBER_FUNCTION_DEF:
-      case MEMBER_FIELD_DEF:
-      case COMPUTED_FIELD_DEF:
-        return;
-      default:
-        handleStmt(n);
-        return;
+      case IF -> handleIf(n);
+      case WHILE -> handleWhile(n);
+      case DO -> handleDo(n);
+      case FOR -> handleFor(n);
+      case FOR_OF, FOR_IN, FOR_AWAIT_OF -> handleEnhancedFor(n);
+      case SWITCH -> handleSwitch(n);
+      case CASE -> handleCase(n);
+      case DEFAULT_CASE -> handleDefault(n);
+      case BLOCK, ROOT, SCRIPT, MODULE_BODY -> handleStmtList(n);
+      case FUNCTION -> handleFunction(n);
+      case EXPR_RESULT -> handleExpr(n);
+      case THROW -> handleThrow(n);
+      case TRY -> handleTry(n);
+      case CATCH -> handleCatch(n);
+      case BREAK -> handleBreak(n);
+      case CONTINUE -> handleContinue(n);
+      case RETURN -> handleReturn(n);
+      case WITH -> handleWith(n);
+      case SWITCH_BODY,
+          LABEL,
+          CLASS_MEMBERS,
+          MEMBER_FUNCTION_DEF,
+          MEMBER_FIELD_DEF,
+          COMPUTED_FIELD_DEF -> {}
+      default -> handleStmt(n);
     }
   }
 
@@ -532,38 +484,40 @@ public final class ControlFlowAnalysis implements NodeTraversal.Callback {
   private void handleSwitch(Node node) {
     // Transfer to the first non-DEFAULT CASE. if there are none, transfer
     // to the DEFAULT or the EMPTY node.
-    Node next = getNextSiblingOfType(node.getSecondChild(), Token.CASE, Token.EMPTY);
+    Node switchBody = node.getLastChild();
+    createEdge(node, Branch.UNCOND, switchBody);
+    Node next = getNextSiblingOfType(switchBody.getFirstChild(), Token.CASE, Token.EMPTY);
     if (next != null) { // Has at least one CASE or EMPTY
-      createEdge(node, Branch.UNCOND, next);
+      createEdge(switchBody, Branch.UNCOND, next);
     } else { // Has no CASE but possibly a DEFAULT
-      if (node.getSecondChild() != null) {
-        createEdge(node, Branch.UNCOND, node.getSecondChild());
+      if (switchBody.hasChildren()) {
+        createEdge(switchBody, Branch.UNCOND, switchBody.getFirstChild());
       } else { // No CASE, no DEFAULT
-        createEdge(node, Branch.UNCOND, computeFollowNode(node, this));
+        createEdge(switchBody, Branch.UNCOND, computeFollowNode(node, this));
       }
     }
     connectToPossibleExceptionHandler(node, node.getFirstChild());
   }
 
-  private void handleCase(Node node) {
+  private void handleCase(Node caseNode) {
     // Case is a bit tricky....First it goes into the body if condition is true.
-    createEdge(node, Branch.ON_TRUE, node.getSecondChild());
+    createEdge(caseNode, Branch.ON_TRUE, caseNode.getSecondChild());
 
     // Look for the next CASE, skipping over DEFAULT.
-    Node next = getNextSiblingOfType(node.getNext(), Token.CASE);
+    Node next = getNextSiblingOfType(caseNode.getNext(), Token.CASE);
     if (next != null) { // Found a CASE
       checkState(next.isCase());
-      createEdge(node, Branch.ON_FALSE, next);
+      createEdge(caseNode, Branch.ON_FALSE, next);
     } else { // No more CASE found, go back and search for a DEFAULT.
-      Node parent = node.getParent();
-      Node deflt = getNextSiblingOfType(parent.getSecondChild(), Token.DEFAULT_CASE);
+      Node switchBody = caseNode.getParent();
+      Node deflt = getNextSiblingOfType(switchBody.getFirstChild(), Token.DEFAULT_CASE);
       if (deflt != null) { // Has a DEFAULT
-        createEdge(node, Branch.ON_FALSE, deflt);
+        createEdge(caseNode, Branch.ON_FALSE, deflt);
       } else { // No DEFAULT found, go to the follow of the SWITCH.
-        createEdge(node, Branch.ON_FALSE, computeFollowNode(node, this));
+        createEdge(caseNode, Branch.ON_FALSE, computeFollowNode(caseNode, this));
       }
     }
-    connectToPossibleExceptionHandler(node, node.getFirstChild());
+    connectToPossibleExceptionHandler(caseNode, caseNode.getFirstChild());
   }
 
   private void handleDefault(Node node) {
@@ -605,21 +559,18 @@ public final class ControlFlowAnalysis implements NodeTraversal.Callback {
     // Synthetic blocks
     if (parent != null) {
       switch (parent.getToken()) {
-        case DEFAULT_CASE:
-        case CASE:
-        case TRY:
-          break;
-        case ROOT:
+        case DEFAULT_CASE, CASE, TRY -> {}
+        case ROOT -> {
           // TODO(b/71873602): why is this path necessary?
           if (node.isRoot() && node.getNext() != null) {
             createEdge(node, Branch.UNCOND, node.getNext());
           }
-          break;
-        default:
+        }
+        default -> {
           if (node.isBlock() && node.isSyntheticBlock()) {
             createEdge(node, Branch.SYN_BLOCK, computeFollowNode(node, this));
           }
-          break;
+        }
       }
     }
   }
@@ -809,11 +760,11 @@ public final class ControlFlowAnalysis implements NodeTraversal.Callback {
 
     // If we are just before a IF/WHILE/DO/FOR:
     switch (parent.getToken()) {
+      case IF -> {
         // The follow() of any of the path from IF would be what follows IF.
-      case IF:
         return computeFollowNode(fromNode, parent, cfa);
-      case CASE:
-      case DEFAULT_CASE:
+      }
+      case CASE, DEFAULT_CASE -> {
         // After the body of a CASE, the control goes to the body of the next
         // case, without having to go to the case condition.
         if (parent.getNext() != null) {
@@ -827,16 +778,14 @@ public final class ControlFlowAnalysis implements NodeTraversal.Callback {
         } else {
           return computeFollowNode(fromNode, parent, cfa);
         }
-      case FOR_IN:
-      case FOR_OF:
-      case FOR_AWAIT_OF:
-        return parent;
-      case FOR:
+      }
+      case FOR -> {
         return parent.getSecondChild().getNext();
-      case WHILE:
-      case DO:
+      }
+      case FOR_IN, FOR_OF, FOR_AWAIT_OF, WHILE, DO -> {
         return parent;
-      case TRY:
+      }
+      case TRY -> {
         // If we are coming out of the TRY block...
         if (parent.getFirstChild() == node) {
           if (NodeUtil.hasFinally(parent)) { // and have FINALLY block.
@@ -860,9 +809,9 @@ public final class ControlFlowAnalysis implements NodeTraversal.Callback {
           }
           return computeFollowNode(fromNode, parent, cfa);
         }
-        // fall through
-      default:
-        break;
+        throw new IllegalStateException("Unexpected TRY child " + node);
+      }
+      default -> {}
     }
 
     // Now that we are done with the special cases follow should be its
@@ -887,19 +836,12 @@ public final class ControlFlowAnalysis implements NodeTraversal.Callback {
    * always create a CFG edge into n itself because of DOs and FORs.
    */
   static Node computeFallThrough(Node n) {
-    switch (n.getToken()) {
-      case DO:
-      case FOR:
-        return computeFallThrough(n.getFirstChild());
-      case FOR_IN:
-      case FOR_OF:
-      case FOR_AWAIT_OF:
-        return n.getSecondChild();
-      case LABEL:
-        return computeFallThrough(n.getLastChild());
-      default:
-        return n;
-    }
+    return switch (n.getToken()) {
+      case DO, FOR -> computeFallThrough(n.getFirstChild());
+      case FOR_IN, FOR_OF, FOR_AWAIT_OF -> n.getSecondChild();
+      case LABEL -> computeFallThrough(n.getLastChild());
+      default -> n;
+    };
   }
 
   /**
@@ -1006,24 +948,25 @@ public final class ControlFlowAnalysis implements NodeTraversal.Callback {
   /** Determines if the subtree might throw an exception. */
   public static boolean mayThrowException(Node n) {
     switch (n.getToken()) {
-      case CALL:
-      case TAGGED_TEMPLATELIT:
-      case GETPROP:
-      case GETELEM:
-      case THROW:
-      case NEW:
-      case ASSIGN:
-      case INC:
-      case DEC:
-      case INSTANCEOF:
-      case IN:
-      case YIELD:
-      case AWAIT:
+      case CALL,
+          TAGGED_TEMPLATELIT,
+          GETPROP,
+          GETELEM,
+          THROW,
+          NEW,
+          ASSIGN,
+          INC,
+          DEC,
+          INSTANCEOF,
+          IN,
+          YIELD,
+          AWAIT -> {
         return true;
-      case FUNCTION:
+      }
+      case FUNCTION -> {
         return false;
-      default:
-        break;
+      }
+      default -> {}
     }
     for (Node c = n.getFirstChild(); c != null; c = c.getNext()) {
       if (!ControlFlowGraph.isEnteringNewCfgNode(c) && mayThrowException(c)) {
@@ -1035,23 +978,11 @@ public final class ControlFlowAnalysis implements NodeTraversal.Callback {
 
   /** Determines whether the given node can be terminated with a BREAK node. */
   static boolean isBreakStructure(Node n, boolean labeled) {
-    switch (n.getToken()) {
-      case FOR:
-      case FOR_IN:
-      case FOR_OF:
-      case FOR_AWAIT_OF:
-      case DO:
-      case WHILE:
-      case SWITCH:
-        return true;
-      case BLOCK:
-      case ROOT:
-      case IF:
-      case TRY:
-        return labeled;
-      default:
-        return false;
-    }
+    return switch (n.getToken()) {
+      case FOR, FOR_IN, FOR_OF, FOR_AWAIT_OF, DO, WHILE, SWITCH -> true;
+      case BLOCK, IF, TRY, BREAK -> labeled;
+      default -> false;
+    };
   }
 
   /**

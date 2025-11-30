@@ -28,7 +28,7 @@ import com.google.javascript.rhino.Node;
 import com.google.javascript.rhino.QualifiedName;
 import com.google.javascript.rhino.Token;
 import java.util.ArrayList;
-import org.jspecify.nullness.Nullable;
+import org.jspecify.annotations.Nullable;
 
 /**
  * Encapsulates something that could be a declaration.
@@ -368,18 +368,22 @@ abstract class PotentialDeclaration {
       //   2. ASSIGN: a.b = goog.define('c', 2);
       //   3. NAME: var x = goog.define('d', 3);
       switch (callNode.getParent().getToken()) {
-        case EXPR_RESULT:
+        case EXPR_RESULT -> {
           return new DefineDeclaration(
               callNode.getSecondChild().getString(), callNode, callNode.getLastChild());
-        case ASSIGN:
+        }
+        case ASSIGN -> {
           Node previous = callNode.getPrevious();
           return new DefineDeclaration(
               previous.getQualifiedName(), previous, callNode.getLastChild());
-        case NAME:
+        }
+        case NAME -> {
           Node parent = callNode.getParent();
           return new DefineDeclaration(parent.getString(), parent, callNode.getLastChild());
-        default:
-          throw new IllegalStateException("Unexpected parent: " + callNode.getParent().getToken());
+        }
+        default ->
+            throw new IllegalStateException(
+                "Unexpected parent: " + callNode.getParent().getToken());
       }
     }
 
@@ -388,22 +392,18 @@ abstract class PotentialDeclaration {
       while (n != null && !n.isStringLit() && !n.isName()) {
         n = n.getFirstChild();
       }
-      switch (n != null ? n.getString() : "") {
-        case "boolean":
-          return new Node(Token.FALSE);
-        case "number":
-          return Node.newNumber(0);
-        case "string":
-          return Node.newString("");
-        default:
-          return null;
-      }
+      return switch (n != null ? n.getString() : "") {
+        case "boolean" -> new Node(Token.FALSE);
+        case "number" -> Node.newNumber(0);
+        case "string" -> Node.newString("");
+        default -> null;
+      };
     }
   }
 
   /**
-   * A declaration of a method defined using the ES6 method syntax or goog.defineClass. Note that a
-   * method defined as an assignment to a prototype property would be a NameDeclaration instead.
+   * A declaration of a method defined using the ES6 method syntax. Note that a method defined as an
+   * assignment to a prototype property would be a NameDeclaration instead.
    */
   private static class MethodDeclaration extends PotentialDeclaration {
     MethodDeclaration(String name, Node functionNode) {
@@ -682,7 +682,6 @@ abstract class PotentialDeclaration {
   private static boolean isTypedRhs(Node rhs) {
     return rhs.isFunction()
         || rhs.isClass()
-        || NodeUtil.isCallTo(rhs, "goog.defineClass")
         || (rhs.isQualifiedName() && GOOG_ABSTRACTMETHOD.matches(rhs));
   }
 

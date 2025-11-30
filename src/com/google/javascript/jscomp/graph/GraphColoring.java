@@ -24,7 +24,7 @@ import java.util.Collections;
 import java.util.Comparator;
 import java.util.Iterator;
 import java.util.List;
-import org.jspecify.nullness.Nullable;
+import org.jspecify.annotations.Nullable;
 
 /**
  * Annotates the graph with a color in a way that no connected node will have
@@ -102,10 +102,10 @@ public abstract class GraphColoring<N, E> {
 
     @Override
     public boolean equals(Object other) {
-      if (!(other instanceof Color)) {
+      if (!(other instanceof Color color)) {
         return false;
       } else {
-        return value == ((Color) other).value;
+        return value == color.value;
       }
     }
 

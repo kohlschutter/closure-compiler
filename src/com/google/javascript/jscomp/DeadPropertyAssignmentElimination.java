@@ -34,7 +34,7 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Queue;
 import java.util.Set;
-import org.jspecify.nullness.Nullable;
+import org.jspecify.annotations.Nullable;
 
 /**
  * An optimization pass that finds and removes dead property assignments within functions and
@@ -301,18 +301,10 @@ public class DeadPropertyAssignmentElimination implements CompilerPass {
     }
 
     private static boolean isConditionalExpression(Node n) {
-      switch (n.getToken()) {
-        case AND:
-        case OR:
-        case HOOK:
-        case COALESCE:
-        case OPTCHAIN_CALL:
-        case OPTCHAIN_GETELEM:
-        case OPTCHAIN_GETPROP:
-          return true;
-        default:
-          return false;
-      }
+      return switch (n.getToken()) {
+        case AND, OR, HOOK, COALESCE, OPTCHAIN_CALL, OPTCHAIN_GETELEM, OPTCHAIN_GETPROP -> true;
+        default -> false;
+      };
     }
 
     private void visitAssignmentLhs(Node lhs) {
@@ -355,7 +347,7 @@ public class DeadPropertyAssignmentElimination implements CompilerPass {
 
     private boolean visitNode(Node n, Node parent) {
       switch (n.getToken()) {
-        case GETPROP:
+        case GETPROP -> {
           // Handle potential getters/setters.
           if (n.isGetProp() && skiplistedPropNames.contains(n.getString())) {
             // We treat getters/setters as if they were a call, thus we mark all properties as read.
@@ -383,33 +375,32 @@ public class DeadPropertyAssignmentElimination implements CompilerPass {
             }
           }
           return true;
-
-        case THIS:
-        case NAME:
+        }
+        case THIS, NAME -> {
           Property nameProp = checkNotNull(getOrCreateProperty(n));
           nameProp.markLastWriteRead();
           if (!parent.isGetProp()) {
             nameProp.markChildrenRead();
           }
           return true;
-
-        case THROW:
-        case FOR:
-        case FOR_IN:
-        case SWITCH:
+        }
+        case THROW, FOR, FOR_IN, SWITCH -> {
           // TODO(kevinoconnor): Switch/for statements need special consideration since they may
           // execute out of order.
           markAllPropsRead();
           return false;
-        case BLOCK:
+        }
+        case BLOCK -> {
           visitBlock(n);
           return true;
-        default:
+        }
+        default -> {
           if (isConditionalExpression(n)) {
             markAllPropsRead();
             return false;
           }
           return true;
+        }
       }
     }
 

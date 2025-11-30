@@ -29,12 +29,6 @@ public final class RenameLabelsTest extends CompilerTestCase {
     return new RenameLabels(compiler);
   }
 
-  @Override
-  protected int getNumRepetitions() {
-    // TODO(b/33104006): remove this override.
-    return 2;
-  }
-
   @Test
   public void testRenameInFunction() {
     test("function x(){ Foo:a(); }", "function x(){ a(); }");
@@ -42,30 +36,34 @@ public final class RenameLabelsTest extends CompilerTestCase {
     test("function x(){ Foo:{ a(); break Foo; } }", "function x(){ a:{ a(); break a; } }");
 
     test(
-        "function x() { "
-            + "Foo:{ "
-            + "function goo() {"
-            + "Foo: {"
-            + "a(); "
-            + "break Foo; "
-            + "}"
-            + "}"
-            + "}"
-            + "}",
+        """
+        function x() {
+        Foo:{
+        function goo() {
+        Foo: {
+        a();
+        break Foo;
+        }
+        }
+        }
+        }
+        """,
         "function x(){{function goo(){a:{ a(); break a; }}}}");
 
     test(
-        "function x() { "
-            + "Foo:{ "
-            + "function goo() {"
-            + "Foo: {"
-            + "a(); "
-            + "break Foo; "
-            + "}"
-            + "}"
-            + "break Foo;"
-            + "}"
-            + "}",
+        """
+        function x() {
+        Foo:{
+        function goo() {
+        Foo: {
+        a();
+        break Foo;
+        }
+        }
+        break Foo;
+        }
+        }
+        """,
         "function x(){a:{function goo(){a:{ a(); break a; }} break a;}}");
   }
 
@@ -83,9 +81,22 @@ public final class RenameLabelsTest extends CompilerTestCase {
   @Test
   public void testRenameForOf() {
     test(
-        lines(
-            "loop:", "for (let x of [1, 2, 3]) {", "  if (x > 2) {", "    break loop;", "  }", "}"),
-        lines("a:", "for (let x of [1, 2, 3]) {", "  if (x > 2) {", "    break a;", "  }", "}"));
+        """
+        loop:
+        for (let x of [1, 2, 3]) {
+          if (x > 2) {
+            break loop;
+          }
+        }
+        """,
+        """
+        a:
+        for (let x of [1, 2, 3]) {
+          if (x > 2) {
+            break a;
+          }
+        }
+        """);
   }
 
   @Test
@@ -100,8 +111,8 @@ public final class RenameLabelsTest extends CompilerTestCase {
         "Foo:Goo:while(1){a(); continue Goo; break Foo;}",
         "a:b:while(1){a(); continue b;break a;}");
 
-    test("Foo:Bar:X:{ break Bar; }", "a:{ break a; }");
-    test("Foo:Bar:X:{ break Bar; break X; }", "a:b:{ break a; break b;}");
+    test("Foo:Bar:X:{ break Bar; }", "b:{ break b; }");
+    test("Foo:Bar:X:{ break Bar; break X; }", "b:c:{ break b; break c;}");
     test("Foo:Bar:X:{ break Bar; break Foo; }", "a:b:{ break b; break a;}");
 
     test("Foo:while (1){a(); break;}", "while (1){a(); break;}");

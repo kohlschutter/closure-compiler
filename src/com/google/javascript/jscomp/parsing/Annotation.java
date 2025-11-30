@@ -33,7 +33,7 @@ enum Annotation {
   DEPRECATED,
   DESC,
   DICT,
-  REQUIRE_INLINING,
+  ENCOURAGE_INLINING,
   ENHANCE,
   ENUM,
   EXTENDS,
@@ -41,7 +41,6 @@ enum Annotation {
   EXPORT,
   FILE_OVERVIEW,
   FINAL,
-  HIDDEN,
   IDGENERATOR,
   IMPLEMENTS,
   IMPLICIT_CAST,
@@ -52,6 +51,7 @@ enum Annotation {
   LENDS,
   LICENSE, // same as preserve
   LOG_TYPE_IN_COMPILER,
+  MAY_HAVE_EXTRA_EDGE,
   MEANING,
   MIXIN_CLASS,
   MIXIN_FUNCTION,
@@ -86,6 +86,7 @@ enum Annotation {
   PROVIDE_ALREADY_PROVIDED,
   PUBLIC,
   PURE_OR_BREAK_MY_CODE,
+  REQUIRE_INLINING,
   RETURN,
   SASS_GENERATED_CSS_TS,
   SEE,
@@ -101,6 +102,7 @@ enum Annotation {
   TYPEDEF,
   TYPE_SUMMARY,
   UNRESTRICTED,
+  USED_VIA_DOT_CONSTRUCTOR,
   WIZACTION,
   TS_TYPE,
   WIZ_ANALYZER,
@@ -126,6 +128,7 @@ enum Annotation {
           .put("desc", Annotation.DESC)
           .put("dict", Annotation.DICT)
           .put("requireInlining", Annotation.REQUIRE_INLINING)
+          .put("encourageInlining", Annotation.ENCOURAGE_INLINING)
           .put("enum", Annotation.ENUM)
           .put("enhance", Annotation.ENHANCE)
           .put("export", Annotation.EXPORT)
@@ -133,7 +136,6 @@ enum Annotation {
           .put("externs", Annotation.EXTERNS)
           .put("fileoverview", Annotation.FILE_OVERVIEW)
           .put("final", Annotation.FINAL)
-          .put("hidden", Annotation.HIDDEN)
           .put("idGenerator", Annotation.IDGENERATOR)
           .put("implements", Annotation.IMPLEMENTS)
           .put("implicitCast", Annotation.IMPLICIT_CAST)
@@ -143,6 +145,7 @@ enum Annotation {
           .put("lends", Annotation.LENDS)
           .put("license", Annotation.LICENSE)
           .put("logTypeInCompiler", Annotation.LOG_TYPE_IN_COMPILER)
+          .put("mayhaveextraedge", Annotation.MAY_HAVE_EXTRA_EDGE)
           .put("meaning", Annotation.MEANING)
           .put("mixinClass", Annotation.MIXIN_CLASS)
           .put("mixinFunction", Annotation.MIXIN_FUNCTION)
@@ -182,6 +185,7 @@ enum Annotation {
           .put("typedef", Annotation.TYPEDEF)
           .put("typeSummary", Annotation.TYPE_SUMMARY)
           .put("unrestricted", Annotation.UNRESTRICTED)
+          .put("usedViaDotConstructor", Annotation.USED_VIA_DOT_CONSTRUCTOR)
           .put("wizaction", Annotation.WIZACTION)
           .put("tsType", Annotation.TS_TYPE)
           .put("wizAnalyzer", Annotation.WIZ_ANALYZER)

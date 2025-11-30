@@ -31,6 +31,7 @@ import static com.google.javascript.rhino.Token.DESTRUCTURING_LHS;
 import static com.google.javascript.rhino.Token.FOR_AWAIT_OF;
 import static com.google.javascript.rhino.Token.FOR_OF;
 import static com.google.javascript.rhino.Token.FUNCTION;
+import static com.google.javascript.rhino.Token.GETPROP;
 import static com.google.javascript.rhino.Token.GETTER_DEF;
 import static com.google.javascript.rhino.Token.ITER_REST;
 import static com.google.javascript.rhino.Token.ITER_SPREAD;
@@ -48,7 +49,6 @@ import static com.google.javascript.rhino.testing.NodeSubject.assertNode;
 import static org.junit.Assert.assertThrows;
 import static org.mockito.Mockito.verify;
 
-import com.google.common.base.Joiner;
 import com.google.common.base.Predicate;
 import com.google.common.base.Predicates;
 import com.google.common.collect.ImmutableList;
@@ -58,7 +58,6 @@ import com.google.javascript.jscomp.AbstractCompiler.LifeCycleStage;
 import com.google.javascript.jscomp.NodeUtil.AllVarsDeclaredInFunction;
 import com.google.javascript.jscomp.NodeUtil.GoogRequire;
 import com.google.javascript.jscomp.base.Tri;
-import com.google.javascript.jscomp.base.format.SimpleFormat;
 import com.google.javascript.jscomp.parsing.parser.FeatureSet;
 import com.google.javascript.jscomp.parsing.parser.FeatureSet.Feature;
 import com.google.javascript.rhino.IR;
@@ -73,13 +72,13 @@ import java.util.ArrayList;
 import java.util.Collection;
 import java.util.HashSet;
 import java.util.Iterator;
-import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.function.Function;
 import java.util.stream.Collectors;
-import org.jspecify.nullness.Nullable;
+import org.jspecify.annotations.Nullable;
 import org.junit.Test;
 import org.junit.experimental.runners.Enclosed;
 import org.junit.runner.RunWith;
@@ -694,6 +693,33 @@ public final class NodeUtilTest {
       checkState(nameNode.isName(), nameNode);
 
       assertThat(NodeUtil.isNamespaceDecl(nameNode)).isTrue();
+    }
+
+    @Test
+    public void testTypedefNamespace() {
+      Node statements =
+          parse(
+              """
+              /** @typedef */ const obj = {};
+              /** @const */ obj.a = {};
+              /** @typedef @const */ obj.b = {};
+              /** @typedef */ obj.c = {};
+              /** @typedef @const */ obj.d = function() {};
+              """);
+      LinkedHashSet<String> namespaceNames = new LinkedHashSet<>();
+      LinkedHashSet<String> nonNamespaceNames = new LinkedHashSet<>();
+      for (Node statement : statements.children()) {
+        Node name =
+            statement.isExprResult() ? statement.getFirstFirstChild() : statement.getFirstChild();
+        checkState(name.isName() || name.isGetProp(), name);
+        if (NodeUtil.isNamespaceDecl(name)) {
+          namespaceNames.add(name.getQualifiedName());
+        } else {
+          nonNamespaceNames.add(name.getQualifiedName());
+        }
+      }
+      assertThat(namespaceNames).containsExactly("obj", "obj.a", "obj.b");
+      assertThat(nonNamespaceNames).containsExactly("obj.c", "obj.d");
     }
 
     private void assertGetNameResult(Node function, String name) {
@@ -1783,7 +1809,7 @@ public final class NodeUtilTest {
 
       // Literals
       assertThat(NodeUtil.getNumberValue(parseExpr("1"))).isEqualTo(1.0);
-      assertThat(NodeUtil.getNumberValue(parseExpr("1n"))).isEqualTo(null);
+      assertThat(NodeUtil.getNumberValue(parseExpr("1n"))).isNull();
       assertThat(NodeUtil.getNumberValue(parseExpr("-1"))).isEqualTo(-1.0);
       assertThat(NodeUtil.getNumberValue(parseExpr("+1"))).isEqualTo(1.0);
       assertThat(NodeUtil.getNumberValue(parseExpr("22"))).isEqualTo(22.0);
@@ -1822,6 +1848,41 @@ public final class NodeUtilTest {
       assertThat(NodeUtil.getNumberValue(parseExpr("x.y"))).isNull();
       assertThat(NodeUtil.getNumberValue(parseExpr("1/2"))).isNull();
       assertThat(NodeUtil.getNumberValue(parseExpr("1-2"))).isNull();
+
+      assertThat(NodeUtil.getNumberValue(parseExpr("[1]"))).isEqualTo(1.0);
+      assertThat(NodeUtil.getNumberValue(parseExpr("{}"))).isNaN();
+    }
+
+    @Test
+    public void testGetNumberValueNoConversions() {
+      assertThat(NodeUtil.getNumberValueNoConversions(parseExpr("''"))).isNull();
+      assertThat(NodeUtil.getNumberValueNoConversions(parseExpr("``"))).isNull();
+      assertThat(NodeUtil.getNumberValueNoConversions(parseExpr("true"))).isNull();
+      assertThat(NodeUtil.getNumberValueNoConversions(parseExpr("false"))).isNull();
+      assertThat(NodeUtil.getNumberValueNoConversions(parseExpr("null"))).isNull();
+      assertThat(NodeUtil.getNumberValueNoConversions(parseExpr("[1]"))).isNull();
+      assertThat(NodeUtil.getNumberValueNoConversions(parseExpr("{}"))).isNull();
+
+      // Literals
+      assertThat(NodeUtil.getNumberValueNoConversions(parseExpr("1"))).isEqualTo(1.0);
+      assertThat(NodeUtil.getNumberValueNoConversions(parseExpr("1n"))).isNull();
+      assertThat(NodeUtil.getNumberValueNoConversions(parseExpr("-1"))).isEqualTo(-1.0);
+      assertThat(NodeUtil.getNumberValueNoConversions(parseExpr("+1"))).isEqualTo(1.0);
+      assertThat(NodeUtil.getNumberValueNoConversions(parseExpr("22"))).isEqualTo(22.0);
+      assertThat(NodeUtil.getNumberValueNoConversions(parseExpr("022"))).isEqualTo(18.0);
+      assertThat(NodeUtil.getNumberValueNoConversions(parseExpr("0x22"))).isEqualTo(34.0);
+      assertThat(NodeUtil.getNumberValueNoConversions(parseExpr("-0.1"))).isEqualTo(-0.1);
+      assertThat(NodeUtil.getNumberValueNoConversions(parseExpr("-0.0"))).isEqualTo(-0.0);
+
+      // BITNOT
+      assertThat(NodeUtil.getNumberValueNoConversions(parseExpr("~1"))).isEqualTo(-2.0);
+      assertThat(NodeUtil.getNumberValueNoConversions(parseExpr("~-1"))).isEqualTo(0.0);
+      assertThat(NodeUtil.getNumberValueNoConversions(parseExpr("~22"))).isEqualTo(-23.0);
+      assertThat(NodeUtil.getNumberValueNoConversions(parseExpr("~022"))).isEqualTo(-19.0);
+      assertThat(NodeUtil.getNumberValueNoConversions(parseExpr("~0.0"))).isEqualTo(-1.0);
+      assertThat(NodeUtil.getNumberValueNoConversions(parseExpr("~0.1"))).isEqualTo(-1.0);
+      assertThat(NodeUtil.getNumberValueNoConversions(parseExpr("~NaN"))).isEqualTo(-1.0);
+      assertThat(NodeUtil.getNumberValueNoConversions(parseExpr("~Infinity"))).isEqualTo(-1.0);
     }
 
     @Test
@@ -3913,7 +3974,7 @@ public final class NodeUtilTest {
       Scope blockScope = scopeCreator.createScope(block, moduleScope);
 
       assertThat(NodeUtil.getGoogRequireInfo("Foo", moduleScope))
-          .isEqualTo(GoogRequire.fromNamespace("d.Foo"));
+          .isEqualTo(GoogRequire.fromNamespace("d.Foo", true));
       assertThat(NodeUtil.getGoogRequireInfo("Foo", blockScope)).isNull();
     }
 
@@ -4063,11 +4124,9 @@ public final class NodeUtilTest {
       Node ast = parse(js);
       Node moduleNode = parseFirst(MODULE_BODY, js);
       Scope globalScope = Scope.createGlobalScope(ast);
-      Map<String, Var> allVariables = new LinkedHashMap<>();
-      List<Var> orderedVars = new ArrayList<>();
-      NodeUtil.getAllVarsDeclaredInModule(
-          moduleNode, allVariables, orderedVars, compiler, scopeCreator, globalScope);
-      assertThat(allVariables.keySet()).containsExactly("g", "h");
+      Set<String> allVariables =
+          NodeUtil.getAllVarNamesDeclaredInModule(moduleNode, compiler, scopeCreator, globalScope);
+      assertThat(allVariables).containsExactly("g", "h");
     }
 
     @Test
@@ -4079,19 +4138,16 @@ public final class NodeUtilTest {
       SyntacticScopeCreator scopeCreator = new SyntacticScopeCreator(compiler);
       Node ast = parse(js);
       Scope globalScope = Scope.createGlobalScope(ast);
-      Map<String, Var> allVariables = new LinkedHashMap<>();
-      List<Var> orderedVars = new ArrayList<>();
-      try {
-        NodeUtil.getAllVarsDeclaredInModule(
-            ast, allVariables, orderedVars, compiler, scopeCreator, globalScope);
-        throw new RuntimeException("getAllVarsDeclaredInModule should throw an exception");
-      } catch (IllegalStateException e) {
-        assertThat(e)
-            .hasMessageThat()
-            .isEqualTo("getAllVarsDeclaredInModule expects a module body node");
-      }
-      assertThat(allVariables).isEmpty();
-      assertThat(orderedVars).isEmpty();
+      Exception ex =
+          assertThrows(
+              IllegalStateException.class,
+              () ->
+                  NodeUtil.getAllVarNamesDeclaredInModule(
+                      ast, compiler, scopeCreator, globalScope));
+
+      assertThat(ex)
+          .hasMessageThat()
+          .isEqualTo("getAllVarsDeclaredInModule expects a module body node");
     }
 
     @Test
@@ -4117,12 +4173,14 @@ public final class NodeUtilTest {
     @Test
     public void testGetAllVars2() {
       String fnString =
-          "function g(x, y) "
-              + "{var z; "
-              + "{let a = (no1, no2) => { let no6, no7; }; "
-              + "const b = 1} "
-              + "let c} "
-              + "function u(h) {let e}";
+          """
+          function g(x, y)
+          {var z;
+          {let a = (no1, no2) => { let no6, no7; };
+          const b = 1}
+          let c}
+          function u(h) {let e}
+          """;
 
       Compiler compiler = new Compiler();
       compiler.setLifeCycleStage(LifeCycleStage.NORMALIZED);
@@ -4622,6 +4680,22 @@ public final class NodeUtilTest {
           .equals(FeatureSet.ES2020.without(Feature.LET_DECLARATIONS));
     }
 
+    @Test
+    public void removeFeatureSetFromAllScriptUpdatesCompilerFeatureSet() {
+      Node rootNode = IR.root();
+      rootNode.addChildToFront(parse(""));
+      Compiler compiler = new Compiler();
+      compiler.setAllowableFeatures(FeatureSet.ES2020);
+      assertFS(compiler.getAllowableFeatures()).equals(FeatureSet.ES2020);
+
+      NodeUtil.removeFeaturesFromAllScripts(
+          rootNode,
+          FeatureSet.BARE_MINIMUM.with(Feature.LET_DECLARATIONS, Feature.CONST_DECLARATIONS),
+          compiler);
+      assertFS(compiler.getAllowableFeatures())
+          .equals(FeatureSet.ES2020.without(Feature.LET_DECLARATIONS, Feature.CONST_DECLARATIONS));
+    }
+
     /**
      * Builds a node tree of string {@link com.google.javascript.rhino.Node} with string labels that
      * can be used to verify order in tests.
@@ -4670,38 +4744,41 @@ public final class NodeUtilTest {
             {
               "goog.module('a.b.c'); const {Bar} = goog.require('d.Foo');",
               "Bar",
-              GoogRequire.fromNamespaceAndProperty("d.Foo", "Bar")
+              GoogRequire.fromNamespaceAndProperty("d.Foo", "Bar", true)
             },
             {"goog.module('a.b.c'); const {Bar} = goog.require('d.Foo');", "Foo", null},
             {
               "goog.module('a.b.c'); const {Bar: BarLocal} = goog.require('d.Foo');",
               "BarLocal",
-              GoogRequire.fromNamespaceAndProperty("d.Foo", "Bar")
+              GoogRequire.fromNamespaceAndProperty("d.Foo", "Bar", true)
             },
             {
-              "goog.module('a.b.c'); const {Bar: BarLocal} =" + " goog.require('d.Foo');",
+              """
+              goog.module('a.b.c'); const {Bar: BarLocal} =
+               goog.require('d.Foo');
+              """,
               "Bar",
               null
             },
             {
               "goog.module('a.b.c'); const Foo = goog.require('d.Foo');",
               "Foo",
-              GoogRequire.fromNamespace("d.Foo")
+              GoogRequire.fromNamespace("d.Foo", true)
             },
             {
               "goog.module('a.b.c'); const dFoo = goog.require('d.Foo');",
               "dFoo",
-              GoogRequire.fromNamespace("d.Foo")
+              GoogRequire.fromNamespace("d.Foo", true)
             },
             {
               "goog.module('a.b.c'); const Foo = goog.requireType('d.Foo');",
               "Foo",
-              GoogRequire.fromNamespace("d.Foo")
+              GoogRequire.fromNamespace("d.Foo", false)
             },
             {
               "goog.module('a.b.c'); const {Bar} = goog.requireType('d.Foo');",
               "Bar",
-              GoogRequire.fromNamespaceAndProperty("d.Foo", "Bar")
+              GoogRequire.fromNamespaceAndProperty("d.Foo", "Bar", false)
             },
             // Test that non-requires just return null.
             {"goog.module('a.b.c'); let Foo;", "Foo", null},
@@ -4792,8 +4869,7 @@ public final class NodeUtilTest {
                       exprToUsesReceiver.forEach(
                           (expr, usesReceiver) -> {
                             String caseSrc =
-                                SimpleFormat.format(
-                                    outerTemplate, SimpleFormat.format(innerTemplate, expr));
+                                String.format(outerTemplate, String.format(innerTemplate, expr));
                             cases.add(
                                 new Object[] {
                                   caseSrc,
@@ -5004,6 +5080,10 @@ public final class NodeUtilTest {
             {OPTCHAIN_CALL, "x?.()", true},
             {OPTCHAIN_GETPROP, "x?.y", true},
             {OPTCHAIN_GETELEM, "x?.[y]", true},
+
+            // Well-known Symbols
+            {GETPROP, "Symbol.iterator", false},
+            {GETPROP, "Fake.Symbol.iterator", true},
           });
     }
 
@@ -5033,16 +5113,16 @@ public final class NodeUtilTest {
       assertThat(
               NodeUtil.estimateNumLines(
                   parse(
-                      lines(
-                          "/* some",
-                          "long",
-                          "multi",
-                          "line",
-                          "comment",
-                          "*/",
-                          "const x = 1;",
-                          "const y = 2;",
-                          ""))))
+                      """
+                      /* some
+                      long
+                      multi
+                      line
+                      comment
+                      */
+                      const x = 1;
+                      const y = 2;
+                      """)))
           .isEqualTo(9);
     }
   }
@@ -5160,9 +5240,5 @@ public final class NodeUtilTest {
 
   private static boolean isValidQualifiedName(String s) {
     return NodeUtil.isValidQualifiedName(FeatureSet.ES3, s);
-  }
-
-  private static String lines(String... lines) {
-    return Joiner.on('\n').join(lines);
   }
 }

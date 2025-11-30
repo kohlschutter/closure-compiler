@@ -24,7 +24,7 @@ import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Iterables;
 import java.util.LinkedHashSet;
 import java.util.Set;
-import org.jspecify.nullness.Nullable;
+import org.jspecify.annotations.Nullable;
 
 /** A simplified version of a Closure or TS type for use by optimizations */
 @AutoValue
@@ -73,12 +73,11 @@ public abstract class Color {
 
   public static Color createUnion(Set<Color> elements) {
     switch (elements.size()) {
-      case 0:
-        throw new IllegalStateException();
-      case 1:
+      case 0 -> throw new IllegalStateException();
+      case 1 -> {
         return Iterables.getOnlyElement(elements);
-      default:
-        break;
+      }
+      default -> {}
     }
 
     ImmutableSet.Builder<Color> instanceColors = ImmutableSet.builder();

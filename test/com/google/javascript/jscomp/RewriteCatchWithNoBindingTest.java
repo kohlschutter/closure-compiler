@@ -18,6 +18,7 @@ package com.google.javascript.jscomp;
 import static com.google.common.truth.Truth.assertThat;
 import static com.google.javascript.rhino.testing.NodeSubject.assertNode;
 
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.javascript.jscomp.CompilerOptions.LanguageMode;
 import com.google.javascript.jscomp.colors.StandardColors;
@@ -42,11 +43,13 @@ public class RewriteCatchWithNoBindingTest extends CompilerTestCase {
     enableTypeInfoValidation();
     replaceTypesWithColors();
     enableMultistageCompilation();
+    setGenericNameReplacements(SPECIAL_VARIABLE_MAP);
   }
 
   @Override
   protected CompilerPass getProcessor(Compiler compiler) {
-    return new RewriteCatchWithNoBinding(compiler);
+    return PeepholeTranspilationsPass.create(
+        compiler, ImmutableList.of(new RewriteCatchWithNoBinding(compiler)));
   }
 
   @Override
@@ -56,85 +59,71 @@ public class RewriteCatchWithNoBindingTest extends CompilerTestCase {
     return options;
   }
 
-  private void rewriteCatchTest(Sources srcs, Expected originalExpected) {
-    Expected modifiedExpected =
-        expected(
-            UnitTestUtils.updateGenericVarNamesInExpectedFiles(
-                (FlatSources) srcs, originalExpected, SPECIAL_VARIABLE_MAP));
-    test(srcs, modifiedExpected);
-  }
-
   @Test
   public void transpileCatchWithoutBinding() {
-    Sources srcs =
-        srcs(
-            lines(
-                "try {", //
-                "  stuff();",
-                "} catch {",
-                "  onError();",
-                "}"));
-    Expected originalExpected =
-        expected(
-            lines(
-                "try {", //
-                "  stuff();",
-                "} catch (UNUSED_CATCH$0) {",
-                "  onError();",
-                "}"));
-    rewriteCatchTest(srcs, originalExpected);
+    test(
+        """
+        try {
+          stuff();
+        } catch {
+          onError();
+        }
+        """,
+        """
+        try {
+          stuff();
+        } catch (UNUSED_CATCH$0) {
+          onError();
+        }
+        """);
     assertThat(getLastCompiler().getAllowableFeatures().contains(Feature.OPTIONAL_CATCH_BINDING))
         .isFalse();
   }
 
   @Test
   public void transpileCatchWithNoBindingNested() {
-    Sources srcs =
-        srcs(
-            lines(
-                "try {", //
-                "  stuff();",
-                "} catch {",
-                "  try {",
-                "    onError();",
-                "  } catch {",
-                "    shruggie();",
-                "  }",
-                "}"));
-    Expected originalExpected =
-        expected(
-            lines(
-                "try {", //
-                "  stuff();",
-                "} catch (UNUSED_CATCH$1) {",
-                "  try {",
-                "    onError();",
-                "  } catch (UNUSED_CATCH$0) {",
-                "    shruggie();",
-                "  }",
-                "}"));
-    rewriteCatchTest(srcs, originalExpected);
+    test(
+        """
+        try {
+          stuff();
+        } catch {
+          try {
+            onError();
+          } catch {
+            shruggie();
+          }
+        }
+        """,
+        """
+        try {
+          stuff();
+        } catch (UNUSED_CATCH$1) {
+          try {
+            onError();
+          } catch (UNUSED_CATCH$0) {
+            shruggie();
+          }
+        }
+        """);
   }
 
   @Test
   public void typeOfAddedBindingIsUnknown() {
-    Sources srcs =
-        srcs(
-            lines(
-                "try {", //
-                "  stuff();",
-                "} catch {",
-                "  onError();",
-                "}"));
-    Expected originalExpected =
-        expected(
-            lines(
-                "try {", //
-                "  stuff();",
-                "} catch (UNUSED_CATCH$0) {",
-                "  onError();",
-                "}"));
-    rewriteCatchTest(srcs, originalExpected);
+    test(
+        """
+        try {
+          stuff();
+        } catch {
+          onError();
+        }
+        """,
+        """
+        try {
+          stuff();
+        } catch (UNUSED_CATCH$0) {
+          onError();
+        }
+        """);
 
     Node binding =
         getLastCompiler()
@@ -152,11 +141,12 @@ public class RewriteCatchWithNoBindingTest extends CompilerTestCase {
   @Test
   public void noTranspileCatchWithBinding() {
     testSame(
-        lines(
-            "try {", //
-            "  stuff();",
-            "} catch (err) {",
-            "  onError(err);",
-            "}"));
+        """
+        try {
+          stuff();
+        } catch (err) {
+          onError(err);
+        }
+        """);
   }
 }

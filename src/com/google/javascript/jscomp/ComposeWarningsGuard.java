@@ -30,7 +30,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.SortedSet;
 import java.util.TreeSet;
-import org.jspecify.nullness.Nullable;
+import org.jspecify.annotations.Nullable;
 
 /**
  * WarningsGuard that represents just a chain of other guards. For example we could have following
@@ -84,8 +84,7 @@ public final class ComposeWarningsGuard extends WarningsGuard {
   }
 
   void addGuard(WarningsGuard guard) {
-    if (guard instanceof ComposeWarningsGuard) {
-      ComposeWarningsGuard composeGuard = (ComposeWarningsGuard) guard;
+    if (guard instanceof ComposeWarningsGuard composeGuard) {
       if (composeGuard.demoteErrors) {
         this.demoteErrors = composeGuard.demoteErrors;
       }
@@ -143,12 +142,13 @@ public final class ComposeWarningsGuard extends WarningsGuard {
 
       for (WarningsGuard guard : guards) {
         switch (guard.mustRunChecks(singleton)) {
-          case TRUE:
+          case TRUE -> {
             return false;
-          case FALSE:
+          }
+          case FALSE -> {
             continue nextSingleton;
-          case UNKNOWN:
-            break;
+          }
+          case UNKNOWN -> {}
         }
       }
 
@@ -161,12 +161,13 @@ public final class ComposeWarningsGuard extends WarningsGuard {
   private boolean enables(DiagnosticGroup group) {
     for (WarningsGuard guard : guards) {
       switch (guard.mustRunChecks(group)) {
-        case TRUE:
+        case TRUE -> {
           return true;
-        case FALSE:
+        }
+        case FALSE -> {
           return false;
-        case UNKNOWN:
-          break;
+        }
+        case UNKNOWN -> {}
       }
     }
 

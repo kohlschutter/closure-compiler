@@ -25,7 +25,7 @@ import com.google.errorprone.annotations.CanIgnoreReturnValue;
 import com.google.javascript.jscomp.deps.ModuleLoader.ModulePath;
 import com.google.javascript.rhino.Node;
 import java.util.Map;
-import org.jspecify.nullness.Nullable;
+import org.jspecify.annotations.Nullable;
 
 /**
  * Contains metadata around modules (or scripts) that is useful for checking imports / requires.
@@ -112,6 +112,10 @@ public final class ModuleMetadataMap {
       return moduleType() == ModuleType.GOOG_PROVIDE;
     }
 
+    public boolean hasLegacyGoogNamespaces() {
+      return isGoogProvide() || isLegacyGoogModule();
+    }
+
     public boolean isCommonJs() {
       return moduleType() == ModuleType.COMMON_JS;
     }
@@ -122,17 +126,10 @@ public final class ModuleMetadataMap {
 
     /** Whether this is a module (with it's own local scope). */
     public boolean isModule() {
-      switch (moduleType()) {
-        case GOOG_PROVIDE:
-        case SCRIPT:
-          return false;
-        case COMMON_JS:
-        case ES6_MODULE:
-        case GOOG_MODULE:
-        case LEGACY_GOOG_MODULE:
-          return true;
-      }
-      throw new AssertionError(moduleType());
+      return switch (moduleType()) {
+        case GOOG_PROVIDE, SCRIPT -> false;
+        case COMMON_JS, ES6_MODULE, GOOG_MODULE, LEGACY_GOOG_MODULE -> true;
+      };
     }
 
     /**
@@ -223,6 +220,7 @@ public final class ModuleMetadataMap {
     // Use reference equality to prevent bad HashSet<ModuleMetadata> performance on GWT.
     // GatherModuleMetadata is guaranteed to create exactly one ModuleMetadata instance for each
     // input module.
+    // NOTE(user): consider removing this override now that GWT & J2CL builds are gone.
     @Override
     public final boolean equals(Object other) {
       return super.equals(other);

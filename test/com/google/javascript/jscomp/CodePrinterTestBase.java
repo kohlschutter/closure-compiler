@@ -18,13 +18,12 @@ package com.google.javascript.jscomp;
 import static com.google.common.truth.Truth.assertThat;
 import static com.google.common.truth.Truth.assertWithMessage;
 
-import com.google.common.base.Joiner;
 import com.google.common.collect.ImmutableList;
 import com.google.javascript.jscomp.CompilerOptions.LanguageMode;
 import com.google.javascript.jscomp.parsing.Config;
 import com.google.javascript.rhino.Node;
 import java.nio.charset.Charset;
-import org.jspecify.nullness.Nullable;
+import org.jspecify.annotations.Nullable;
 import org.junit.Before;
 
 /** Base class for tests that exercise {@link CodePrinter}. */
@@ -109,7 +108,9 @@ public abstract class CodePrinterTestBase {
       }
     }
     if (actual != expected) {
-      assertWithMessage("Unexpected warnings or errors.\n " + msg).that(actual).isEqualTo(expected);
+      assertWithMessage("Unexpected warnings or errors.\n %s", msg)
+          .that(actual)
+          .isEqualTo(expected);
     }
   }
 
@@ -170,30 +171,21 @@ public abstract class CodePrinterTestBase {
     parse(expected); // validate the expected string is valid JS
     assertThat(
             parsePrint(
-                js,
-                newCompilerOptions(
-                    new CompilerOptionBuilder() {
-                      @Override
-                      void setOptions(CompilerOptions options) {
-                        options.setPrettyPrint(false);
-                        options.setLineLengthThreshold(
-                            CompilerOptions.DEFAULT_LINE_LENGTH_THRESHOLD);
-                      }
-                    })))
-        .isEqualTo(expected);
+                    js,
+                    newCompilerOptions(
+                        new CompilerOptionBuilder() {
+                          @Override
+                          void setOptions(CompilerOptions options) {
+                            options.setPrettyPrint(false);
+                            options.setLineLengthThreshold(
+                                CompilerOptions.DEFAULT_LINE_LENGTH_THRESHOLD);
+                          }
+                        }))
+                .trim())
+        .isEqualTo(expected.trim());
   }
 
   protected void assertPrintSame(String js) {
     assertPrint(js, js);
-  }
-
-  protected static final Joiner LINE_JOINER = Joiner.on('\n');
-
-  public static String lines(String line) {
-    return line;
-  }
-
-  public static String lines(String... lines) {
-    return LINE_JOINER.join(lines);
   }
 }

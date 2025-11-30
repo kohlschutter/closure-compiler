@@ -31,7 +31,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
 import java.util.Objects;
-import org.jspecify.nullness.Nullable;
+import org.jspecify.annotations.Nullable;
 
 /**
  * Collects information mapping the generated (compiled) source back to
@@ -403,8 +403,8 @@ public final class SourceMapGeneratorV3 implements SourceMapGenerator {
     for (String key : this.extensions.keySet()) {
       Object objValue = this.extensions.get(key);
       String value;
-      if (objValue instanceof String) {
-        value = escapeString((String) objValue);  // escapes native String
+      if (objValue instanceof String string) {
+        value = escapeString(string); // escapes native String
       } else {
         value = objValue.toString();
       }

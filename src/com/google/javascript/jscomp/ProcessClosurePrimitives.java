@@ -38,7 +38,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.NoSuchElementException;
 import java.util.Set;
-import org.jspecify.nullness.Nullable;
+import org.jspecify.annotations.Nullable;
 
 /**
  * Performs some Closure-specific simplifications including rewriting goog.base, goog.addDependency.
@@ -117,6 +117,9 @@ class ProcessClosurePrimitives extends AbstractPostOrderCallback implements Comp
   static final DiagnosticType INVALID_RENAME_FUNCTION =
       DiagnosticType.error("JSC_INVALID_RENAME_FUNCTION", "{0} call is invalid: {1}");
 
+  static final DiagnosticType INVALID_GOOG_WEAK_USAGE_CALL =
+      DiagnosticType.error("JSC_INVALID_GOOG_WEAK_USAGE", "{0} call is invalid: {1}");
+
   /** The root Closure namespace */
   static final String GOOG = "goog";
 
@@ -126,8 +129,6 @@ class ProcessClosurePrimitives extends AbstractPostOrderCallback implements Comp
 
   private final Set<String> knownClosureSubclasses = new LinkedHashSet<>();
 
-  private final Set<String> exportedVariables = new LinkedHashSet<>();
-
   private final ImmutableMap<String, ModuleMetadata> closureModules;
 
   ProcessClosurePrimitives(AbstractCompiler compiler) {
@@ -135,10 +136,6 @@ class ProcessClosurePrimitives extends AbstractPostOrderCallback implements Comp
     this.closureModules =
         checkNotNull(compiler.getModuleMetadataMap(), "Need to run GatherModuleMetadata")
             .getModulesByGoogNamespace();
-  }
-
-  Set<String> getExportedVariableNames() {
-    return exportedVariables;
   }
 
   @Override
@@ -150,16 +147,14 @@ class ProcessClosurePrimitives extends AbstractPostOrderCallback implements Comp
   @Override
   public void visit(NodeTraversal t, Node n, Node parent) {
     switch (n.getToken()) {
-      case CALL:
+      case CALL -> {
         {
           this.checkGoogFunctions(t, n);
           this.maybeProcessClassBaseCall(n);
           this.checkPropertyRenameCall(n);
         }
-        break;
-
-      case FUNCTION:
-      case CLASS:
+      }
+      case FUNCTION, CLASS -> {
         if (!t.inGlobalHoistScope() || n.isFromExterns()) {
           return;
         }
@@ -176,26 +171,21 @@ class ProcessClosurePrimitives extends AbstractPostOrderCallback implements Comp
                   name,
                   pn.toString()));
         }
-        break;
-
-      case EXPR_RESULT:
+      }
+      case EXPR_RESULT -> {
         if (!n.getFirstChild().isAssign() || !n.getFirstFirstChild().isQualifiedName()) {
           break;
         }
         String lhs = n.getFirstFirstChild().getQualifiedName();
         checkPossibleGoogProvideInit(lhs, n.getFirstChild().getJSDocInfo(), n);
-        break;
-      case VAR:
-      case CONST:
-      case LET:
+      }
+      case VAR, CONST, LET -> {
         if (!n.getFirstChild().isName()) {
           break;
         }
         checkPossibleGoogProvideInit(n.getFirstChild().getString(), n.getJSDocInfo(), n);
-        break;
-
-      default:
-        break;
+      }
+      default -> {}
     }
   }
 
@@ -241,33 +231,19 @@ class ProcessClosurePrimitives extends AbstractPostOrderCallback implements Comp
     // when we see a provides/requires, and don't worry about
     // reporting the change when we actually do the replacement.
     String methodName = callee.getString();
-    Node arg = callee.getNext();
     switch (methodName) {
-      case "inherits":
-        // Note: inherits is allowed in local scope
-        processInheritsCall(call);
-        break;
-      case "exportSymbol":
-        // Note: exportSymbol is allowed in local scope
-        if (arg.isStringLit()) {
-          String argString = arg.getString();
-          int dot = argString.indexOf('.');
-          if (dot == -1) {
-            exportedVariables.add(argString);
-          } else {
-            exportedVariables.add(argString.substring(0, dot));
-          }
-        }
-        break;
-      case "addDependency":
+      case "inherits" ->
+          // Note: inherits is allowed in local scope
+          processInheritsCall(call);
+      case "addDependency" -> {
         if (validateUnaliasablePrimitiveCall(t, call, methodName)) {
           processAddDependency(call);
         }
-        break;
-      case "setCssNameMapping":
+      }
+      case "setCssNameMapping" -> {
         var unused = processSetCssNameMapping(compiler, call, call.getParent());
-        break;
-      case "forwardDeclare":
+      }
+      case "forwardDeclare" -> {
         if (validatePrimitiveCallWithMessage(
             t,
             call,
@@ -275,8 +251,33 @@ class ProcessClosurePrimitives extends AbstractPostOrderCallback implements Comp
             ProcessClosurePrimitives.CLOSURE_CALL_CANNOT_BE_ALIASED_OUTSIDE_MODULE_ERROR)) {
           processForwardDeclare(call);
         }
-        break;
-      default: // fall out
+      }
+      case "weakUsage" -> validateWeakUsageCall(call);
+      default -> {}
+    }
+  }
+
+  private void validateWeakUsageCall(Node call) {
+    // goog.weakUsage() should have exactly one argument, and it should be a name (possibly
+    // qualified).
+    int childCount = call.getChildCount();
+    Node arg = call.getSecondChild();
+    String calleeName = call.getFirstChild().getQualifiedName();
+    if (childCount != 2) {
+      compiler.report(
+          JSError.make(
+              call,
+              INVALID_GOOG_WEAK_USAGE_CALL,
+              calleeName,
+              "should have exactly one argument, not " + (childCount - 1)));
+    }
+    if (childCount >= 2 && !call.getSecondChild().isQualifiedName()) {
+      compiler.report(
+          JSError.make(
+              call,
+              INVALID_GOOG_WEAK_USAGE_CALL,
+              calleeName,
+              "argument should be a name or qualified name, not " + arg));
     }
   }
 
@@ -611,10 +612,11 @@ class ProcessClosurePrimitives extends AbstractPostOrderCallback implements Comp
     }
 
     if (style == CssRenamingMap.Style.BY_PART) {
-      // Make sure that no keys contain -'s
+      // Make sure that no class keys contain -'s
+      // Variable keys can contain -'s since they're always named BY_WHOLE.
       List<String> errors = new ArrayList<>();
       for (String key : cssNames.keySet()) {
-        if (key.contains("-")) {
+        if (key.contains("-") && !key.startsWith("--")) {
           errors.add(key);
         }
       }
@@ -671,18 +673,6 @@ class ProcessClosurePrimitives extends AbstractPostOrderCallback implements Comp
 
   /** Process a goog.addDependency() call and record any forward declarations. */
   private void processAddDependency(Node n) {
-    CodingConvention convention = compiler.getCodingConvention();
-    List<String> typeDecls =
-        convention.identifyTypeDeclarationCall(n);
-
-    // TODO(nnaze): Use of addDependency() should someday cause a warning
-    // as we migrate users to explicit goog.forwardDeclare() calls.
-    if (typeDecls != null) {
-      for (String typeDecl : typeDecls) {
-        compiler.forwardDeclareType(typeDecl);
-      }
-    }
-
     // We can't modify parent, so just create a node that will
     // get compiled out.
     Node emptyNode = IR.number(0);
@@ -752,16 +742,14 @@ class ProcessClosurePrimitives extends AbstractPostOrderCallback implements Comp
     String calleeName = callee.getQualifiedName();
 
     switch (call.getChildCount() - 1) {
-      case 1:
-      case 2:
-        break;
-      default:
-        compiler.report(
-            JSError.make(
-                call,
-                INVALID_RENAME_FUNCTION,
-                calleeName,
-                "Must be called with 1 or 2 arguments."));
+      case 1, 2 -> {}
+      default ->
+          compiler.report(
+              JSError.make(
+                  call,
+                  INVALID_RENAME_FUNCTION,
+                  calleeName,
+                  "Must be called with 1 or 2 arguments."));
     }
 
     Node propName = callee.getNext();

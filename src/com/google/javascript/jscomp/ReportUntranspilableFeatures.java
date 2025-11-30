@@ -21,7 +21,6 @@ import static com.google.javascript.jscomp.CheckRegExp.MALFORMED_REGEXP;
 
 import com.google.common.annotations.VisibleForTesting;
 import com.google.javascript.jscomp.CompilerOptions.BrowserFeaturesetYear;
-import com.google.javascript.jscomp.NodeTraversal.AbstractPostOrderCallback;
 import com.google.javascript.jscomp.parsing.Config.LanguageMode;
 import com.google.javascript.jscomp.parsing.parser.FeatureSet;
 import com.google.javascript.jscomp.parsing.parser.FeatureSet.Feature;
@@ -31,15 +30,14 @@ import com.google.javascript.jscomp.regex.RegExpTree.NamedCaptureGroup;
 import com.google.javascript.jscomp.regex.RegExpTree.UnicodePropertyEscape;
 import com.google.javascript.rhino.Node;
 import java.util.function.Predicate;
-import org.jspecify.nullness.Nullable;
+import org.jspecify.annotations.Nullable;
 
 /**
  * Looks for presence of features that are not supported for transpilation (mostly new RegExp
  * features and bigint literal). Reports errors for any features are present in the root and not
  * present in the targeted output language.
  */
-public final class ReportUntranspilableFeatures extends AbstractPostOrderCallback
-    implements CompilerPass {
+public final class ReportUntranspilableFeatures extends AbstractPeepholeTranspilation {
 
   @VisibleForTesting
   public static final DiagnosticType UNTRANSPILABLE_FEATURE_PRESENT =
@@ -47,6 +45,9 @@ public final class ReportUntranspilableFeatures extends AbstractPostOrderCallbac
           "JSC_UNTRANSPILABLE",
           "Cannot convert feature \"{0}\" to targeted output language. Feature requires at minimum"
               + " {1}.{2}");
+
+  private static final FeatureSet UNTRANSPILABLE_ES5_FEATURES =
+      FeatureSet.BARE_MINIMUM.with(Feature.GETTER, Feature.SETTER);
 
   private static final FeatureSet UNTRANSPILABLE_2018_FEATURES =
       FeatureSet.BARE_MINIMUM.with(
@@ -71,6 +72,7 @@ public final class ReportUntranspilableFeatures extends AbstractPostOrderCallbac
 
   private static final FeatureSet ALL_UNTRANSPILABLE_FEATURES =
       FeatureSet.BARE_MINIMUM
+          .union(UNTRANSPILABLE_ES5_FEATURES)
           .union(UNTRANSPILABLE_2018_FEATURES)
           .union(UNTRANSPILABLE_2019_FEATURES)
           .union(UNTRANSPILABLE_2022_FEATURES)
@@ -99,15 +101,73 @@ public final class ReportUntranspilableFeatures extends AbstractPostOrderCallbac
   }
 
   @Override
-  public void process(Node externs, Node root) {
-    checkForUntranspilable(root);
+  FeatureSet getTranspiledAwayFeatures() {
+    return untranspilableFeaturesToRemove;
+  }
+
+  @Override
+  FeatureSet getAdditionalFeaturesToRunOn() {
+    /*
+     * This pass needs to run on all ES3 REGEXP_SYNTAX because it checks for the presence of
+     * non-flag RegExp features that are not parsed and not attached to nodes.
+     */
+    return FeatureSet.BARE_MINIMUM.with(Feature.REGEXP_SYNTAX);
   }
 
   private void checkForUntranspilable(Node root) {
     // Non-flag RegExp features are not attached to nodes, so we must force traversal.
-    NodeTraversal.traverse(compiler, root, this);
-    TranspilationPasses.maybeMarkFeaturesAsTranspiledAway(
-        compiler, root, untranspilableFeaturesToRemove);
+    switch (root.getToken()) {
+      case REGEXP:
+        {
+          String pattern = root.getFirstChild().getString();
+          String flags = root.hasTwoChildren() ? root.getLastChild().getString() : "";
+          RegExpTree reg;
+          try {
+            reg = RegExpTree.parseRegExp(pattern, flags);
+          } catch (IllegalArgumentException | IndexOutOfBoundsException ex) {
+            compiler.report(JSError.make(root, MALFORMED_REGEXP, ex.getMessage()));
+            break;
+          }
+          if (untranspilableFeaturesToRemove.contains(Feature.REGEXP_FLAG_S)) {
+            checkForRegExpSFlag(root);
+          }
+          if (untranspilableFeaturesToRemove.contains(Feature.REGEXP_LOOKBEHIND)) {
+            checkForLookbehind(root, reg);
+          }
+          if (untranspilableFeaturesToRemove.contains(Feature.REGEXP_NAMED_GROUPS)) {
+            checkForNamedGroups(root, reg);
+          }
+          if (untranspilableFeaturesToRemove.contains(Feature.REGEXP_UNICODE_PROPERTY_ESCAPE)) {
+            checkForUnicodePropertyEscape(root, reg);
+          }
+          if (untranspilableFeaturesToRemove.contains(Feature.REGEXP_FLAG_D)) {
+            checkForRegExpDFlag(root);
+          }
+          break;
+        }
+      case BIGINT:
+        {
+          // Transpilation of BigInt is not supported
+          if (untranspilableFeaturesToRemove.contains(Feature.BIGINT)) {
+            reportUntranspilable(Feature.BIGINT, root);
+          }
+          break;
+        }
+
+      case GETTER_DEF:
+        if (untranspilableFeaturesToRemove.contains(Feature.GETTER)) {
+          reportUntranspilable(Feature.GETTER, root);
+        }
+        break;
+
+      case SETTER_DEF:
+        if (untranspilableFeaturesToRemove.contains(Feature.SETTER)) {
+          reportUntranspilable(Feature.SETTER, root);
+        }
+        break;
+      default:
+        break;
+    }
   }
 
   private void reportUntranspilable(Feature feature, Node node) {
@@ -136,50 +196,6 @@ public final class ReportUntranspilableFeatures extends AbstractPostOrderCallbac
     compiler.report(
         JSError.make(
             node, UNTRANSPILABLE_FEATURE_PRESENT, feature.toString(), minimum, suggestion));
-  }
-
-  @Override
-  public void visit(NodeTraversal t, Node n, Node parent) {
-    switch (n.getToken()) {
-      case REGEXP:
-        {
-          String pattern = n.getFirstChild().getString();
-          String flags = n.hasTwoChildren() ? n.getLastChild().getString() : "";
-          RegExpTree reg;
-          try {
-            reg = RegExpTree.parseRegExp(pattern, flags);
-          } catch (IllegalArgumentException | IndexOutOfBoundsException ex) {
-            t.report(n, MALFORMED_REGEXP, ex.getMessage());
-            break;
-          }
-          if (untranspilableFeaturesToRemove.contains(Feature.REGEXP_FLAG_S)) {
-            checkForRegExpSFlag(n);
-          }
-          if (untranspilableFeaturesToRemove.contains(Feature.REGEXP_LOOKBEHIND)) {
-            checkForLookbehind(n, reg);
-          }
-          if (untranspilableFeaturesToRemove.contains(Feature.REGEXP_NAMED_GROUPS)) {
-            checkForNamedGroups(n, reg);
-          }
-          if (untranspilableFeaturesToRemove.contains(Feature.REGEXP_UNICODE_PROPERTY_ESCAPE)) {
-            checkForUnicodePropertyEscape(n, reg);
-          }
-          if (untranspilableFeaturesToRemove.contains(Feature.REGEXP_FLAG_D)) {
-            checkForRegExpDFlag(n);
-          }
-          break;
-        }
-      case BIGINT:
-        {
-          // Transpilation of BigInt is not supported
-          if (untranspilableFeaturesToRemove.contains(Feature.BIGINT)) {
-            reportUntranspilable(Feature.BIGINT, n);
-          }
-          break;
-        }
-      default:
-        break;
-    }
   }
 
   private void checkForRegExpSFlag(Node regexpNode) {
@@ -229,5 +245,12 @@ public final class ReportUntranspilableFeatures extends AbstractPostOrderCallbac
       }
     }
     return false;
+  }
+
+  @Override
+  @SuppressWarnings("CanIgnoreReturnValueSuggester")
+  Node transpileSubtree(Node subtree) {
+    checkForUntranspilable(subtree);
+    return subtree;
   }
 }

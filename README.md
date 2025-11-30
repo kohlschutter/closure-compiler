@@ -144,6 +144,10 @@ To achieve these goals closure compiler places many restrictions on its input:
 
 ## Getting Started
 
+IMPORTANT: The NPM packages are not built and distributed by Google. They are an
+Open Source contribution from ChadKillingsworth, who manages and builds them
+from a separate repository at https://github.com/ChadKillingsworth/closure-compiler-npm.
+
 The easiest way to install the compiler is with [NPM](https://npmjs.com) or
 [Yarn](https://yarnpkg.com):
 
@@ -178,6 +182,12 @@ var x=42;
 
 A pre-compiled release of the compiler is also available via
 [Maven](https://mvnrepository.com/artifact/com.google.javascript/closure-compiler).
+
+### Web-based tooling
+
+https://jscompressor.treblereel.dev/ is a web-based UI and REST API for Closure
+Compiler, developed and maintained by at
+https://github.com/treblereel/jscompressor.
 
 ### Basic usage
 
@@ -302,7 +312,7 @@ new compiler({
 This package will provide programmatic access to the native Graal binary in most
 cases, and will fall back to the Java version otherwise.
 
-#### Please see the [closure-compiler-npm](https://github.com/google/closure-compiler-npm/tree/master/packages/google-closure-compiler) repository for documentation on accessing the compiler in JS.
+#### Please see the [closure-compiler-npm](https://github.com/chadkillingsworth/closure-compiler-npm/tree/master/packages/google-closure-compiler) repository for documentation on accessing the compiler in JS.
 
 ## Compiling Multiple Scripts
 
@@ -359,7 +369,8 @@ To build the compiler yourself, you will need the following:
 
 Prerequisite                                                               | Description
 -------------------------------------------------------------------------- | -----------
-[Java 11 or later](https://java.com)                                       | Used to compile the compiler's source code.
+[Java 21 or later](https://java.com)                                       | Used to compile the compiler's source code.
+[NodeJS](https://nodejs.org)                                               | Used to generate resources used by Java compilation
 [Git](https://git-scm.com/)                                                | Used by Bazel to download dependencies.
 [Bazelisk](https://bazel.build/install/bazelisk) | Used to build the various compiler targets.
 

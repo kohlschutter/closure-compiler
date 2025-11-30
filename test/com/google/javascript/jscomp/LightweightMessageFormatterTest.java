@@ -17,14 +17,13 @@ package com.google.javascript.jscomp;
 
 import static com.google.common.base.Preconditions.checkState;
 import static com.google.common.truth.Truth.assertThat;
-import static org.junit.Assert.assertThrows;
 
 import com.google.debugging.sourcemap.proto.Mapping.OriginalMapping;
 import com.google.javascript.jscomp.LightweightMessageFormatter.LineNumberingFormatter;
 import com.google.javascript.jscomp.SourceExcerptProvider.SourceExcerpt;
 import com.google.javascript.rhino.IR;
 import com.google.javascript.rhino.Node;
-import org.jspecify.nullness.Nullable;
+import org.jspecify.annotations.Nullable;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.junit.runners.JUnit4;
@@ -54,19 +53,35 @@ public final class LightweightMessageFormatterTest {
   @Test
   public void testTwoLineRegion() {
     assertThat(format(region(5, 6, "hello world\nfoo bar")))
-        .isEqualTo("  5| hello world\n" + "  6| foo bar");
+        .isEqualTo(
+            """
+              5| hello world
+              6| foo bar\
+            """);
   }
 
   @Test
   public void testThreeLineRegionAcrossNumberRange() {
     String region = format(region(9, 11, "hello world\nfoo bar\nanother one"));
-    assertThat(region).isEqualTo("   9| hello world\n" + "  10| foo bar\n" + "  11| another one");
+    assertThat(region)
+        .isEqualTo(
+            """
+               9| hello world
+              10| foo bar
+              11| another one\
+            """);
   }
 
   @Test
   public void testThreeLineRegionEmptyLine() {
     String region = format(region(7, 9, "hello world\n\nanother one"));
-    assertThat(region).isEqualTo("  7| hello world\n" + "  8| \n" + "  9| another one");
+    assertThat(region)
+        .isEqualTo(
+            """
+              7| hello world
+              8|\s
+              9| another one\
+            """);
   }
 
   @Test
@@ -82,7 +97,12 @@ public final class LightweightMessageFormatterTest {
   @Test
   public void testThreeLineRemoveLastEmptyLine() {
     String region = format(region(7, 9, "hello world\nfoobar\n"));
-    assertThat(region).isEqualTo("  7| hello world\n" + "  8| foobar");
+    assertThat(region)
+        .isEqualTo(
+            """
+              7| hello world
+              8| foobar\
+            """);
   }
 
   @Test
@@ -94,9 +114,11 @@ public final class LightweightMessageFormatterTest {
     LightweightMessageFormatter formatter = formatter("    if (foobar) {");
     assertThat(formatter.formatError(error))
         .isEqualTo(
-            "javascript/complex.js:5:8: ERROR - [TEST_FOO] error description here\n"
-                + "    if (foobar) {\n"
-                + "        ^^^^^^\n");
+            """
+            javascript/complex.js:5:8: ERROR - [TEST_FOO] error description here
+                if (foobar) {
+                    ^^^^^^
+            """);
   }
 
   @Test
@@ -108,9 +130,11 @@ public final class LightweightMessageFormatterTest {
     LightweightMessageFormatter formatter = formatter("\t\tif (foobar) {");
     assertThat(formatter.formatError(error))
         .isEqualTo(
-            "javascript/complex.js:5:6: ERROR - [TEST_FOO] error description here\n"
-                + "\t\tif (foobar) {\n"
-                + "\t\t    ^^^^^^\n");
+            """
+            javascript/complex.js:5:6: ERROR - [TEST_FOO] error description here
+            \t\tif (foobar) {
+            \t\t    ^^^^^^
+            """);
   }
 
   @Test
@@ -119,9 +143,11 @@ public final class LightweightMessageFormatterTest {
     LightweightMessageFormatter formatter = formatter("assert (1;");
     assertThat(formatter.formatError(error))
         .isEqualTo(
-            "javascript/complex.js:1:10: ERROR - [TEST_FOO] error description here\n"
-                + "assert (1;\n"
-                + "          ^\n");
+            """
+            javascript/complex.js:1:10: ERROR - [TEST_FOO] error description here
+            assert (1;
+                      ^
+            """);
   }
 
   @Test
@@ -130,9 +156,11 @@ public final class LightweightMessageFormatterTest {
     LightweightMessageFormatter formatter = formatter("if (foo");
     assertThat(formatter.formatError(error))
         .isEqualTo(
-            "javascript/complex.js:6:7: ERROR - [TEST_FOO] error description here\n"
-                + "if (foo\n"
-                + "       ^\n");
+            """
+            javascript/complex.js:6:7: ERROR - [TEST_FOO] error description here
+            if (foo
+                   ^
+            """);
   }
 
   @Test
@@ -144,11 +172,13 @@ public final class LightweightMessageFormatterTest {
     LightweightMessageFormatter formatter = formatter("    if (foobar) {", "<div ng-show='(foo'>");
     assertThat(formatter.formatError(error))
         .isEqualTo(
-            "javascript/complex.js:5:8: \n"
-                + "Originally at:\n"
-                + "original/source.html:3:15: ERROR - [TEST_FOO] error description here\n"
-                + "<div ng-show='(foo'>\n"
-                + "               ^^^^^\n");
+            """
+            javascript/complex.js:5:8:\s
+            Originally at:
+            original/source.html:3:15: ERROR - [TEST_FOO] error description here
+            <div ng-show='(foo'>
+                           ^^^^^
+            """);
   }
 
   @Test
@@ -160,9 +190,11 @@ public final class LightweightMessageFormatterTest {
     LightweightMessageFormatter formatter = formatter("    if (foobar) {", SourceExcerpt.FULL, 5);
     assertThat(formatter.formatError(error))
         .isEqualTo(
-            "javascript/complex.js:5:8: ERROR - [TEST_FOO] error description here\n"
-                + "  5|     if (foobar) {\n"
-                + "             ^^^^^^\n");
+            """
+            javascript/complex.js:5:8: ERROR - [TEST_FOO] error description here
+              5|     if (foobar) {
+                         ^^^^^^
+            """);
   }
 
   @Test
@@ -179,11 +211,13 @@ public final class LightweightMessageFormatterTest {
         formatter("if (foobar\n      || baz) {", SourceExcerpt.FULL, 6);
     assertThat(formatter.formatError(error))
         .isEqualTo(
-            "javascript/complex.js:5:4: ERROR - [TEST_FOO] error description here\n"
-                + "  5| if (foobar\n"
-                + "         ^^^^^^\n"
-                + "  6|       || baz) {\n"
-                + "     ^^^^^^^^^^^^\n");
+            """
+            javascript/complex.js:5:4: ERROR - [TEST_FOO] error description here
+              5| if (foobar
+                     ^^^^^^
+              6|       || baz) {
+                 ^^^^^^^^^^^^
+            """);
   }
 
   @Test
@@ -193,8 +227,36 @@ public final class LightweightMessageFormatterTest {
     n.setSourceFileForTesting("javascript/complex.js");
     JSError error = JSError.make(n, FOO_TYPE);
     LightweightMessageFormatter formatter = formatter("    if (foobar) {", SourceExcerpt.FULL, 5);
+    assertThat(formatter.formatError(error))
+        .contains(
+            """
+            javascript/complex.js:5:800: ERROR - [TEST_FOO] error description here
+            Source excerpt could not be formatted. This may indicate a bug in the compiler.\
+            """);
+  }
 
-    assertThrows(Exception.class, () -> formatter.formatError(error));
+  @Test
+  public void testMultiline_charNoOutOfBoundsCrashes2() {
+    Node n = Node.newString("foobar").setLinenoCharno(0, 2);
+    n.setLength(0);
+    n.setSourceFileForTesting("javascript/complex.js");
+    JSError error = JSError.make(n, FOO_TYPE);
+    LightweightMessageFormatter formatter =
+        formatter(
+            // The first line is intentionally too short.
+            """
+            b
+            /** @export {(number|undefined)} */
+            """,
+            SourceExcerpt.FULL,
+            5);
+
+    assertThat(formatter.formatError(error))
+        .contains(
+            """
+            javascript/complex.js: ERROR - [TEST_FOO] error description here
+            Source excerpt could not be formatted. This may indicate a bug in the compiler.\
+            """);
   }
 
   @Test
@@ -209,16 +271,18 @@ public final class LightweightMessageFormatterTest {
         formatter("a\n .b\n .c\n .d\n .e + 1;", SourceExcerpt.FULL, 12);
     assertThat(formatter.formatError(error))
         .isEqualTo(
-            "javascript/complex.js:8:0: ERROR - [TEST_FOO] error description here\n"
-                + "   8| a\n"
-                + "      ^\n"
-                + "   9|  .b\n"
-                + "      ^^^\n"
-                + "...\n"
-                + "  11|  .d\n"
-                + "      ^^^\n"
-                + "  12|  .e + 1;\n"
-                + "      ^^^\n");
+            """
+            javascript/complex.js:8:0: ERROR - [TEST_FOO] error description here
+               8| a
+                  ^
+               9|  .b
+                  ^^^
+            ...
+              11|  .d
+                  ^^^
+              12|  .e + 1;
+                  ^^^
+            """);
   }
 
   @Test
@@ -236,9 +300,11 @@ public final class LightweightMessageFormatterTest {
     LightweightMessageFormatter formatter = formatter("if (foobar", SourceExcerpt.FULL, 5);
     assertThat(formatter.formatError(error))
         .isEqualTo(
-            "javascript/complex.js:5:4: ERROR - [TEST_FOO] error description here\n"
-                + "  5| if (foobar\n"
-                + "         ^^^^^^\n");
+            """
+            javascript/complex.js:5:4: ERROR - [TEST_FOO] error description here
+              5| if (foobar
+                     ^^^^^^
+            """);
   }
 
   @Test
@@ -247,9 +313,11 @@ public final class LightweightMessageFormatterTest {
     LightweightMessageFormatter formatter = formatter("if (foobar", SourceExcerpt.FULL, 5);
     assertThat(formatter.formatError(error))
         .isEqualTo(
-            "javascript/complex.js:5:4: ERROR - [TEST_FOO] error description here\n"
-                + "  5| if (foobar\n"
-                + "         ^\n");
+            """
+            javascript/complex.js:5:4: ERROR - [TEST_FOO] error description here
+              5| if (foobar
+                     ^
+            """);
   }
 
   @Test
@@ -258,8 +326,10 @@ public final class LightweightMessageFormatterTest {
     LightweightMessageFormatter formatter = formatter("if (foobar", SourceExcerpt.FULL, 5);
     assertThat(formatter.formatError(error))
         .isEqualTo(
-            "javascript/complex.js:5: ERROR - [TEST_FOO] error description here\n"
-                + "  5| if (foobar\n");
+            """
+            javascript/complex.js:5: ERROR - [TEST_FOO] error description here
+              5| if (foobar
+            """);
   }
 
   private LightweightMessageFormatter formatter(String string, SourceExcerpt excerpt, int endLine) {

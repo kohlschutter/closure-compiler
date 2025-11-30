@@ -21,11 +21,11 @@ import static com.google.common.base.Preconditions.checkState;
 import static com.google.common.collect.ImmutableList.toImmutableList;
 import static com.google.common.collect.ImmutableSet.toImmutableSet;
 
-import com.google.common.annotations.GwtIncompatible;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Ascii;
 import com.google.common.base.Joiner;
 import com.google.common.base.Optional;
+import com.google.common.base.Splitter;
 import com.google.common.collect.ImmutableCollection;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMultimap;
@@ -37,6 +37,7 @@ import com.google.javascript.jscomp.CheckConformance.InvalidRequirementSpec;
 import com.google.javascript.jscomp.CheckConformance.Precondition;
 import com.google.javascript.jscomp.CheckConformance.Rule;
 import com.google.javascript.jscomp.CodingConvention.AssertionFunctionLookup;
+import com.google.javascript.jscomp.ConformanceConfig.LibraryLevelNonAllowlistedConformanceViolationsBehavior;
 import com.google.javascript.jscomp.Requirement.Severity;
 import com.google.javascript.jscomp.Requirement.WhitelistEntry;
 import com.google.javascript.jscomp.base.LinkedIdentityHashSet;
@@ -64,16 +65,18 @@ import java.util.Set;
 import java.util.function.Supplier;
 import java.util.regex.Pattern;
 import java.util.regex.PatternSyntaxException;
-import org.jspecify.nullness.Nullable;
+import org.jspecify.annotations.Nullable;
 
 /**
  * Standard conformance rules. See
  * third_party/java_src/jscomp/java/com/google/javascript/jscomp/conformance.proto
  */
-@GwtIncompatible("java.lang.reflect, java.util.regex")
 public final class ConformanceRules {
 
   private static final AllowList ALL_TS_ALLOWLIST = createTsAllowlist();
+
+  private static final Splitter ON_PROTOTYPE = Splitter.on(".prototype.");
+  private static final Splitter ON_DOT = Splitter.on(".");
 
   private static AllowList createTsAllowlist() {
     try {
@@ -274,18 +277,13 @@ public final class ConformanceRules {
     }
 
     private static TypeMatchingStrategy getTypeMatchingStrategy(Requirement requirement) {
-      switch (requirement.getTypeMatchingStrategy()) {
-        case LOOSE:
-          return TypeMatchingStrategy.LOOSE;
-        case STRICT_NULLABILITY:
-          return TypeMatchingStrategy.STRICT_NULLABILITY;
-        case SUBTYPES:
-          return TypeMatchingStrategy.SUBTYPES;
-        case EXACT:
-          return TypeMatchingStrategy.EXACT;
-        default:
-          throw new IllegalStateException("Unknown TypeMatchingStrategy");
-      }
+      return switch (requirement.getTypeMatchingStrategy()) {
+        case LOOSE -> TypeMatchingStrategy.LOOSE;
+        case STRICT_NULLABILITY -> TypeMatchingStrategy.STRICT_NULLABILITY;
+        case SUBTYPES -> TypeMatchingStrategy.SUBTYPES;
+        case EXACT -> TypeMatchingStrategy.EXACT;
+        default -> throw new IllegalStateException("Unknown TypeMatchingStrategy");
+      };
     }
 
     /**
@@ -309,10 +307,11 @@ public final class ConformanceRules {
     }
 
     @Override
-    public final void check(NodeTraversal t, Node n) {
+    public final void check(
+        NodeTraversal t, Node n, LibraryLevelNonAllowlistedConformanceViolationsBehavior behavior) {
       ConformanceResult result = checkConformance(t, n);
       if (result.level != ConformanceLevel.CONFORMANCE) {
-        report(n, result);
+        report(n, result, behavior);
       }
     }
 
@@ -322,7 +321,10 @@ public final class ConformanceRules {
      * @param n The node representing the violating code.
      * @param result The result representing the confidence of the violation.
      */
-    protected void report(Node n, ConformanceResult result) {
+    protected void report(
+        Node n,
+        ConformanceResult result,
+        LibraryLevelNonAllowlistedConformanceViolationsBehavior behavior) {
       DiagnosticType msg;
       if (severity == Severity.ERROR) {
         // Always report findings that are errors, even if the types are too loose to be certain.
@@ -341,17 +343,25 @@ public final class ConformanceRules {
 
       String path = NodeUtil.getSourceName(n);
       AllowList allowlist = path != null ? findAllowListForPath(path) : null;
+      boolean isAllowlisted =
+          !(allowlist == null && (onlyApplyTo == null || onlyApplyTo.matches(path)));
       boolean shouldReport =
           compiler
               .getErrorManager()
+              // returns true even if the violation is allowlisted
               .shouldReportConformanceViolation(
                   requirement,
                   allowlist != null
                       ? Optional.fromNullable(allowlist.allowlistEntry)
                       : Optional.absent(),
-                  err);
+                  err,
+                  behavior,
+                  isAllowlisted);
 
-      if (shouldReport && allowlist == null && (onlyApplyTo == null || onlyApplyTo.matches(path))) {
+      // if the violation is not in a gencode or we're not in library level reporting mode,
+      // determined by `shouldReport` above, then check the allowlists to decide whether to actually
+      // report the violation or not.
+      if (shouldReport && !isAllowlisted) {
         compiler.report(err);
       }
     }
@@ -445,6 +455,12 @@ public final class ConformanceRules {
 
       for (String typeName : typeNames) {
         JSType type = registry.getGlobalType(typeName);
+        if (type == null) {
+          // For a few types like `google3.javascript.apps.wiz.events.wiz_event.WizEvent`, we need
+          // to resolve via closure namespace. This is because the class type WizEvent is exported
+          // from a goog.module, so is not a global type name in the global type registry.
+          type = registry.resolveViaClosureNamespace(typeName);
+        }
         if (type != null) {
           types.add(type);
         }
@@ -569,6 +585,7 @@ public final class ConformanceRules {
 
   /** Banned name rule */
   static final class BannedName extends AbstractRule {
+    // LINT.ThenChange(//depot/google3/javascript/typescript/compiler/conformance/rules/ban_third_party_script.ts)
     private final Requirement.Type requirementType;
     private final ImmutableList<Node> qualifiedNames;
     private final ImmutableSet<String> shortNames;
@@ -592,16 +609,12 @@ public final class ConformanceRules {
     }
 
     private static final Precondition IS_CANDIDATE_NODE =
-        (Node n) -> {
-          switch (n.getToken()) {
-            case GETPROP:
-              return n.getFirstChild().isQualifiedName();
-            case NAME:
-              return !n.getString().isEmpty();
-            default:
-              return false;
-          }
-        };
+        (Node n) ->
+            switch (n.getToken()) {
+              case GETPROP -> n.getFirstChild().isQualifiedName();
+              case NAME -> !n.getString().isEmpty();
+              default -> false;
+            };
 
     @Override
     public final Precondition getPrecondition() {
@@ -659,16 +672,10 @@ public final class ConformanceRules {
       BANNED_PROPERTY() {
         @Override
         public boolean shouldCheck(Node n) {
-          switch (n.getToken()) {
-            case STRING_KEY:
-            case GETPROP:
-            case GETELEM:
-            case COMPUTED_PROP:
-              return true;
-
-            default:
-              return false;
-          }
+          return switch (n.getToken()) {
+            case STRING_KEY, GETPROP, GETELEM, COMPUTED_PROP -> true;
+            default -> false;
+          };
         }
       },
       BANNED_PROPERTY_WRITE() {
@@ -717,25 +724,16 @@ public final class ConformanceRules {
         throw new InvalidRequirementSpec("missing value");
       }
 
-      switch (requirement.getType()) {
-        case BANNED_PROPERTY:
-          this.requirementPrecondition = RequirementPrecondition.BANNED_PROPERTY;
-          break;
-        case BANNED_PROPERTY_READ:
-          this.requirementPrecondition = RequirementPrecondition.BANNED_PROPERTY_READ;
-          break;
-        case BANNED_PROPERTY_WRITE:
-          this.requirementPrecondition = RequirementPrecondition.BANNED_PROPERTY_WRITE;
-          break;
-        case BANNED_PROPERTY_NON_CONSTANT_WRITE:
-          this.requirementPrecondition = RequirementPrecondition.BANNED_PROPERTY_NON_CONSTANT_WRITE;
-          break;
-        case BANNED_PROPERTY_CALL:
-          this.requirementPrecondition = RequirementPrecondition.BANNED_PROPERTY_CALL;
-          break;
-        default:
-          throw new AssertionError(requirement.getType());
-      }
+      this.requirementPrecondition =
+          switch (requirement.getType()) {
+            case BANNED_PROPERTY -> RequirementPrecondition.BANNED_PROPERTY;
+            case BANNED_PROPERTY_READ -> RequirementPrecondition.BANNED_PROPERTY_READ;
+            case BANNED_PROPERTY_WRITE -> RequirementPrecondition.BANNED_PROPERTY_WRITE;
+            case BANNED_PROPERTY_NON_CONSTANT_WRITE ->
+                RequirementPrecondition.BANNED_PROPERTY_NON_CONSTANT_WRITE;
+            case BANNED_PROPERTY_CALL -> RequirementPrecondition.BANNED_PROPERTY_CALL;
+            default -> throw new AssertionError(requirement.getType());
+          };
 
       this.registry = compiler.getTypeRegistry();
 
@@ -813,7 +811,7 @@ public final class ConformanceRules {
           || foundType.isTemplateType()
           || foundType.isEmptyType()
           || foundType.isAllType()
-          || foundType.equals(this.registry.getNativeType(JSTypeNative.OBJECT_TYPE))) {
+          || isLooseObject(foundType, this.registry)) {
         if (reportLooseTypeViolations) {
           return ConformanceResult.POSSIBLE_VIOLATION_DUE_TO_LOOSE_TYPES;
         }
@@ -843,53 +841,40 @@ public final class ConformanceRules {
 
     private @Nullable JSType extractType(Node n) {
       switch (n.getToken()) {
-        case GETELEM:
-        case GETPROP:
+        case GETELEM, GETPROP -> {
           return n.getFirstChild().getJSType();
-
-        case STRING_KEY:
-        case COMPUTED_PROP:
-          {
-            Node parent = n.getParent();
-            switch (parent.getToken()) {
-              case OBJECT_PATTERN:
-              case OBJECTLIT:
-                return parent.getJSType();
-
-              case CLASS_MEMBERS:
-                return null;
-
-              default:
-                throw new AssertionError();
-            }
-          }
-
-        default:
+        }
+        case STRING_KEY, COMPUTED_PROP -> {
+          Node parent = n.getParent();
+          return switch (parent.getToken()) {
+            case OBJECT_PATTERN, OBJECTLIT -> parent.getJSType();
+            case CLASS_MEMBERS -> null;
+            default -> throw new AssertionError();
+          };
+        }
+        default -> {
           return null;
+        }
       }
     }
 
     private @Nullable String extractName(Node n) {
 
       switch (n.getToken()) {
-        case GETPROP:
-        case STRING_KEY:
+        case GETPROP, STRING_KEY -> {
           return n.getString();
-
-        case GETELEM:
-          {
-            Node string = n.getSecondChild();
-            return string.isStringLit() ? string.getString() : null;
-          }
-
-        case COMPUTED_PROP:
-          {
-            Node string = n.getFirstChild();
-            return string.isStringLit() ? string.getString() : null;
-          }
-
-        default:
+        }
+        case GETELEM -> {
+          Node string = n.getSecondChild();
+          return string.isStringLit() ? string.getString() : null;
+        }
+        case COMPUTED_PROP -> {
+          Node string = n.getFirstChild();
+          return string.isStringLit() ? string.getString() : null;
+        }
+        default -> {
           return null;
+        }
       }
     }
   }
@@ -932,12 +917,30 @@ public final class ConformanceRules {
           return ConformanceResult.VIOLATION;
         }
       } else if (node.isTemplateLitString()) {
-        if (this.stringPattern.matcher(node.getCookedString()).matches()) {
-          return ConformanceResult.VIOLATION;
+        String cookedString = node.getCookedString();
+        if (cookedString != null) {
+          if (this.stringPattern.matcher(cookedString).matches()) {
+            return ConformanceResult.VIOLATION;
+          }
+        } else {
+          checkState(
+              isTaggedTemplateLitString(node),
+              "Found untagged template literal with invalid (uncookable) escape sequence: %s",
+              node.getRawString());
+          String rawString = node.getRawString();
+          if (this.stringPattern.matcher(rawString).matches()) {
+            return ConformanceResult.VIOLATION;
+          }
         }
       }
       return ConformanceResult.CONFORMANCE;
     }
+  }
+
+  /** Is this template literal string a tagged template literal string? */
+  private static boolean isTaggedTemplateLitString(Node node) {
+    checkState(node.isTemplateLitString());
+    return node.getGrandparent() != null && node.getGrandparent().isTaggedTemplateLit();
   }
 
   private static class ConformanceUtil {
@@ -1019,10 +1022,10 @@ public final class ConformanceRules {
 
     /** Extracts the method name from a provided name. */
     private static @Nullable String getPropertyFromDeclarationName(String specName) {
-      String[] parts = specName.split("\\.prototype\\.");
-      checkState(parts.length == 1 || parts.length == 2);
-      if (parts.length == 2) {
-        return parts[1];
+      List<String> parts = ON_PROTOTYPE.splitToList(specName);
+      checkState(parts.size() == 1 || parts.size() == 2);
+      if (parts.size() == 2) {
+        return parts.get(1);
       }
       return null;
     }
@@ -1030,10 +1033,10 @@ public final class ConformanceRules {
     /** Extracts the class name from a provided name. */
     private static @Nullable String getClassFromDeclarationName(String specName) {
       String tmp = specName;
-      String[] parts = tmp.split("\\.prototype\\.");
-      checkState(parts.length == 1 || parts.length == 2);
-      if (parts.length == 2) {
-        return parts[0];
+      List<String> parts = ON_PROTOTYPE.splitToList(tmp);
+      checkState(parts.size() == 1 || parts.size() == 2);
+      if (parts.size() == 2) {
+        return parts.get(0);
       }
       return null;
     }
@@ -1079,12 +1082,10 @@ public final class ConformanceRules {
       }
 
       switch (node.getToken()) {
-        case STRING_KEY:
-        case STRINGLIT:
-        case TEMPLATELIT:
-        case TEMPLATELIT_STRING:
+        case STRING_KEY, STRINGLIT, TEMPLATELIT, TEMPLATELIT_STRING -> {
           return NodeUtil.getStringValue(node);
-        case NAME:
+        }
+        case NAME -> {
           if (scope == null) {
             return null;
           }
@@ -1098,7 +1099,8 @@ public final class ConformanceRules {
           }
           Node initialValue = var.getInitialValue();
           return inferStringValue(var.getScope(), initialValue, globalNamespaceSupplier);
-        case GETPROP:
+        }
+        case GETPROP -> {
           JSType type = node.getJSType();
           if (type == null) {
             return null;
@@ -1126,8 +1128,10 @@ public final class ConformanceRules {
             return getValueFromGlobalName(scope, gns, node.getQualifiedName());
           }
           return null;
-        default:
+        }
+        default -> {
           // Do nothing
+        }
       }
       return null;
     }
@@ -1302,8 +1306,7 @@ public final class ConformanceRules {
       Node lhs = isCallInvocation ? n.getFirstFirstChild() : n.getFirstChild();
       if (methodClassType != null && lhs.getJSType() != null) {
         JSType targetType = lhs.getJSType().restrictByNotNullOrUndefined();
-        if (ConformanceUtil.isLooseType(targetType)
-            || targetType.equals(registry.getNativeType(JSTypeNative.OBJECT_TYPE))) {
+        if (ConformanceUtil.isLooseType(targetType) || isLooseObject(targetType, registry)) {
           if (reportLooseTypeViolations
               && !ConformanceUtil.validateCall(
                   compiler, n.getParent(), r.restrictedCallType, isCallInvocation)) {
@@ -1411,7 +1414,8 @@ public final class ConformanceRules {
 
       ImmutableList.Builder<TemplateAstMatcher> builder = ImmutableList.builder();
       for (String value : requirement.getValueList()) {
-        Node parseRoot = new JsAst(SourceFile.fromCode("<template>", value)).getAstRoot(compiler);
+        Node parseRoot =
+            new CompilerInput(SourceFile.fromCode("<template>", value)).getAstRoot(compiler);
         if (!parseRoot.hasOneChild() || !parseRoot.getFirstChild().isFunction()) {
           throw new InvalidRequirementSpec("invalid conformance template: " + value);
         }
@@ -1456,8 +1460,9 @@ public final class ConformanceRules {
     }
 
     @Override
-    public void check(NodeTraversal t, Node n) {
-      customRule.check(t, n);
+    public void check(
+        NodeTraversal t, Node n, LibraryLevelNonAllowlistedConformanceViolationsBehavior behavior) {
+      customRule.check(t, n, behavior);
     }
 
     private Rule createRule(AbstractCompiler compiler, Requirement requirement)
@@ -1470,8 +1475,8 @@ public final class ConformanceRules {
           rule = (Rule) (ctor.newInstance(compiler, requirement));
         } catch (InvocationTargetException e) {
           Throwable cause = e.getCause();
-          if (cause instanceof InvalidRequirementSpec) {
-            throw (InvalidRequirementSpec) cause;
+          if (cause instanceof InvalidRequirementSpec invalidRequirementSpec) {
+            throw invalidRequirementSpec;
           }
           throw new RuntimeException(cause);
         }
@@ -1591,22 +1596,13 @@ public final class ConformanceRules {
 
     @Override
     protected ConformanceResult checkConformance(NodeTraversal t, Node n) {
-      boolean violation;
 
-      switch (n.getToken()) {
-        case GETPROP:
-        case GETELEM:
-        case NEW:
-        case CALL:
-          violation = report(n.getFirstChild());
-          break;
-        case IN:
-          violation = report(n.getLastChild());
-          break;
-        default:
-          violation = false;
-          break;
-      }
+      boolean violation =
+          switch (n.getToken()) {
+            case GETPROP, GETELEM, NEW, CALL -> report(n.getFirstChild());
+            case IN -> report(n.getLastChild());
+            default -> false;
+          };
 
       return violation ? ConformanceResult.VIOLATION : ConformanceResult.CONFORMANCE;
     }
@@ -1691,6 +1687,63 @@ public final class ConformanceRules {
       ObjectType owner = ObjectType.cast(n.getFirstChild().getJSType());
       Property prop = owner != null ? owner.getSlot(n.getString()) : null;
       return prop != null && !prop.isTypeInferred();
+    }
+  }
+
+  /**
+   * Banned non-literal arguments passed to {@code goog.string.Const.from}. Possible calls to
+   * goog.string.Const in user code could look like:
+   *
+   * <pre>
+   * `goog.string.Const.from('foo');`
+   * `const alias = goog.string.Const.from; alias(foo);`
+   * `const {from} = goog.require('goog.string.Const'); from(foo);`
+   * `const alias = goog.require('goog.string.Const'); alias.from(foo);`
+   * </pre>
+   */
+  public static final class BanNonLiteralArgsToGoogStringConstFrom extends AbstractRule {
+
+    private static final QualifiedName GOOG_STRING_CONST_FROM =
+        QualifiedName.of("goog.string.Const.from");
+
+    public BanNonLiteralArgsToGoogStringConstFrom(
+        AbstractCompiler compiler, Requirement requirement) throws InvalidRequirementSpec {
+      super(compiler, requirement);
+    }
+
+    @Override
+    protected ConformanceResult checkConformance(NodeTraversal t, Node node) {
+      if (node.isCall()) {
+        Node name = node.getFirstChild();
+        Node argument = name.getNext();
+        if (argument == null) {
+          return ConformanceResult.CONFORMANCE;
+        }
+
+        // If the name is a qualified name, it must be goog.string.Const.from or an alias of it.
+        if (name.isName()) {
+          Scope scope = t.getScope();
+          Var var = scope.getVar(name.getString());
+          if (var == null) {
+            return ConformanceResult.CONFORMANCE;
+          }
+          name = var.getInitialValue();
+          if (name == null) {
+            return ConformanceResult.CONFORMANCE;
+          }
+        }
+
+        if (GOOG_STRING_CONST_FROM.matches(name)) {
+          if (!isAllowed(argument)) {
+            return ConformanceResult.VIOLATION;
+          }
+        }
+      }
+      return ConformanceResult.CONFORMANCE;
+    }
+
+    private boolean isAllowed(Node argument) {
+      return argument.isStringLit() || (argument.isTemplateLit() && argument.hasOneChild());
     }
   }
 
@@ -2071,23 +2124,24 @@ public final class ConformanceRules {
    * values assigned to banned attributes are allowed as they couldn't be attacker controlled.
    */
   public static final class BanCreateDom extends AbstractRule {
-    private final List<String[]> bannedTagAttrs;
+    private final ImmutableList<String[]> bannedTagAttrs;
     private final JSType domHelperType;
     private final JSType classNameTypes;
 
     public BanCreateDom(AbstractCompiler compiler, Requirement requirement)
         throws InvalidRequirementSpec {
       super(compiler, requirement);
-      bannedTagAttrs = new ArrayList<>();
+      ImmutableList.Builder<String[]> bannedTagAttrs = ImmutableList.builder();
       for (String value : requirement.getValueList()) {
-        String[] tagAttr = value.split("\\.");
-        if (tagAttr.length != 2 || tagAttr[0].isEmpty() || tagAttr[1].isEmpty()) {
+        List<String> tagAttr = ON_DOT.splitToList(value);
+        if (tagAttr.size() != 2 || tagAttr.get(0).isEmpty() || tagAttr.get(1).isEmpty()) {
           throw new InvalidRequirementSpec("Values must be in the format tagname.attribute.");
         }
-        tagAttr[0] = tagAttr[0].toLowerCase(Locale.ROOT);
-        bannedTagAttrs.add(tagAttr);
+        String lowercasedTag = tagAttr.get(0).toLowerCase(Locale.ROOT);
+        bannedTagAttrs.add(new String[] {lowercasedTag, tagAttr.get(1)});
       }
-      if (bannedTagAttrs.isEmpty()) {
+      this.bannedTagAttrs = bannedTagAttrs.build();
+      if (this.bannedTagAttrs.isEmpty()) {
         throw new InvalidRequirementSpec("Specify one or more values.");
       }
       domHelperType = compiler.getTypeRegistry().getGlobalType("goog.dom.DomHelper");
@@ -2328,8 +2382,6 @@ public final class ConformanceRules {
             "action",
             "formaction",
             "sandbox",
-            "cite",
-            "poster",
             "icon",
             "codebase",
             "data");
@@ -2811,5 +2863,9 @@ public final class ConformanceRules {
       Node parent = n.getParent();
       return parent != null && parent.isMemberFunctionDef() && parent.isStaticMember();
     }
+  }
+
+  private static boolean isLooseObject(JSType type, JSTypeRegistry registry) {
+    return type.equals(registry.getNativeType(JSTypeNative.OBJECT_TYPE));
   }
 }

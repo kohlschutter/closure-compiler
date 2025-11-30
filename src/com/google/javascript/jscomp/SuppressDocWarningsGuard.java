@@ -23,7 +23,7 @@ import com.google.javascript.rhino.JSDocInfo;
 import com.google.javascript.rhino.Node;
 import java.util.LinkedHashMap;
 import java.util.Map;
-import org.jspecify.nullness.Nullable;
+import org.jspecify.annotations.Nullable;
 
 /**
  * Filters warnings based on in-code {@code @suppress} annotations.
@@ -52,7 +52,7 @@ class SuppressDocWarningsGuard extends WarningsGuard {
     LinkedHashMap<String, DiagnosticGroup> builder = new LinkedHashMap<>(suppressors);
 
     // Hack: Allow "@suppress {missingProperties}" to mean
-    // "@suppress {strictmissingProperties}".
+    // "@suppress {strictMissingProperties}".
     // TODO(johnlenz): Delete this when it is enabled with missingProperties
     builder.put(
         "missingProperties",
@@ -60,7 +60,7 @@ class SuppressDocWarningsGuard extends WarningsGuard {
             DiagnosticGroups.MISSING_PROPERTIES, DiagnosticGroups.STRICT_MISSING_PROPERTIES));
 
     // Hack: Allow "@suppress {checkTypes}" to include
-    // "strictmissingProperties".
+    // "strictCheckTypes".
     // TODO(johnlenz): Delete this when it is enabled with missingProperties
     builder.put(
         "checkTypes",
@@ -71,7 +71,7 @@ class SuppressDocWarningsGuard extends WarningsGuard {
 
   @Override
   public @Nullable CheckLevel level(JSError error) {
-    Node node = error.getNode();
+    Node node = error.node();
     if (node == null) {
       node = getScriptNodeBySourceName(error);
     }
@@ -147,11 +147,11 @@ class SuppressDocWarningsGuard extends WarningsGuard {
   }
 
   private final @Nullable Node getScriptNodeBySourceName(JSError error) {
-    if (error.getSourceName() == null) {
+    if (error.sourceName() == null) {
       return null;
     }
 
-    Node scriptNode = this.compiler.getScriptNode(error.getSourceName());
+    Node scriptNode = this.compiler.getScriptNode(error.sourceName());
     if (scriptNode == null) {
       return null;
     }

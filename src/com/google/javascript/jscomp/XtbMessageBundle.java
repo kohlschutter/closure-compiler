@@ -18,18 +18,19 @@ package com.google.javascript.jscomp;
 
 import static com.google.common.base.Preconditions.checkState;
 
-import com.google.common.annotations.GwtIncompatible;
 import com.google.common.collect.Iterables;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.StringReader;
 import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import javax.xml.XMLConstants;
 import javax.xml.parsers.ParserConfigurationException;
 import javax.xml.parsers.SAXParser;
 import javax.xml.parsers.SAXParserFactory;
-import org.jspecify.nullness.Nullable;
+import org.jspecify.annotations.Nullable;
 import org.xml.sax.Attributes;
 import org.xml.sax.ContentHandler;
 import org.xml.sax.EntityResolver;
@@ -41,10 +42,7 @@ import org.xml.sax.XMLReader;
 /**
  * A MessageBundle that parses messages from an XML Translation Bundle (XTB)
  * file.
- *
- * TODO(moz): Make this GWT compatible.
  */
-@GwtIncompatible("Currently not used in GWT version")
 @SuppressWarnings("sunapi")
 public final class XtbMessageBundle implements MessageBundle {
   private static final SecureEntityResolver NOOP_RESOLVER
@@ -125,6 +123,19 @@ public final class XtbMessageBundle implements MessageBundle {
     private static final String PLACEHOLDER_ELEM_NAME = "ph";
     private static final String PLACEHOLDER_NAME_ATT_NAME = "name";
 
+    private static final String BRANCH_ELEM_NAME = "branch";
+    private static final String BRANCH_NAME_ATT_NAME = "variants";
+    private static final String MALE_GENDER_CASE = "MASCULINE";
+    private static final String FEMALE_GENDER_CASE = "FEMININE";
+    private static final String NEUTER_GENDER_CASE = "NEUTER";
+    private static final String OTHER_GENDER_CASE = "OTHER";
+    private static final String GENDER_CASE_ERROR_MESSAGE =
+        "Gender case must be one of the following: MASCULINE, FEMININE, NEUTER, or OTHER.";
+
+    private static final String GENDER_VARIANT_PATTERN = "grammatical_gender_case:\\s*(\\w+)";
+    private static final Pattern GET_STRING_PATTERN = Pattern.compile(GENDER_VARIANT_PATTERN);
+    private String genderCase;
+
     String lang;
     JsMessage.@Nullable Builder msgBuilder;
 
@@ -147,23 +158,45 @@ public final class XtbMessageBundle implements MessageBundle {
     public void startElement(String uri, String localName, String qName,
                              Attributes atts) {
       switch (qName) {
-        case BUNDLE_ELEM_NAME:
+        case BUNDLE_ELEM_NAME -> {
           checkState(lang == null);
           lang = atts.getValue(LANG_ATT_NAME);
           checkState(lang != null && !lang.isEmpty());
-          break;
-        case TRANSLATION_ELEM_NAME:
+        }
+        case TRANSLATION_ELEM_NAME -> {
           checkState(msgBuilder == null);
           String id = atts.getValue(MESSAGE_ID_ATT_NAME);
           checkState(id != null && !id.isEmpty());
           msgBuilder = new JsMessage.Builder().setKey(id).setId(id);
-          break;
-        case PLACEHOLDER_ELEM_NAME:
+        }
+        case PLACEHOLDER_ELEM_NAME -> {
           checkState(msgBuilder != null);
           String phRef = atts.getValue(PLACEHOLDER_NAME_ATT_NAME);
-          msgBuilder.appendCanonicalPlaceholderReference(phRef);
-          break;
-        default: // fall out
+          if (msgBuilder.hasGenderedVariants()) {
+            msgBuilder.appendCanonicalPlaceholderReference(
+                JsMessage.GrammaticalGenderCase.valueOf(genderCase), phRef);
+          } else {
+            msgBuilder.appendCanonicalPlaceholderReference(phRef);
+          }
+        }
+        case BRANCH_ELEM_NAME -> {
+          checkState(msgBuilder != null);
+          String gender = atts.getValue(BRANCH_NAME_ATT_NAME);
+          // Gender case must be one of the following: MALE, FEMALE, NEUTER, or OTHER.
+
+          Matcher matcher = GET_STRING_PATTERN.matcher(gender);
+          if (matcher.find()) {
+            genderCase = matcher.group(1);
+            checkState(
+                genderCase.equals(MALE_GENDER_CASE)
+                    || genderCase.equals(FEMALE_GENDER_CASE)
+                    || genderCase.equals(NEUTER_GENDER_CASE)
+                    || genderCase.equals(OTHER_GENDER_CASE),
+                GENDER_CASE_ERROR_MESSAGE);
+            msgBuilder.addGenderedMessageKey(JsMessage.GrammaticalGenderCase.valueOf(genderCase));
+          }
+        }
+        default -> {}
       }
     }
 
@@ -185,7 +218,11 @@ public final class XtbMessageBundle implements MessageBundle {
       if (msgBuilder != null) {
         String part = String.valueOf(ch, start, length);
         // Append a string literal to the message.
-        msgBuilder.appendStringPart(part);
+        if (msgBuilder.hasGenderedVariants()) {
+          msgBuilder.appendStringPart(JsMessage.GrammaticalGenderCase.valueOf(genderCase), part);
+        } else {
+          msgBuilder.appendStringPart(part);
+        }
       }
     }
 
@@ -193,7 +230,13 @@ public final class XtbMessageBundle implements MessageBundle {
     public void ignorableWhitespace(char[] ch, int start, int length) {
       if (msgBuilder != null) {
         // Preserve whitespace in messages.
-        msgBuilder.appendStringPart(String.valueOf(ch, start, length));
+        if (msgBuilder.hasGenderedVariants()) {
+          msgBuilder.appendStringPart(
+              JsMessage.GrammaticalGenderCase.valueOf(genderCase),
+              String.valueOf(ch, start, length));
+        } else {
+          msgBuilder.appendStringPart(String.valueOf(ch, start, length));
+        }
       }
     }
 

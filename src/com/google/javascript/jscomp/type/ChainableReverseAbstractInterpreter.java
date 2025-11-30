@@ -50,7 +50,7 @@ import com.google.javascript.rhino.jstype.TemplateType;
 import com.google.javascript.rhino.jstype.TemplatizedType;
 import com.google.javascript.rhino.jstype.UnionType;
 import com.google.javascript.rhino.jstype.Visitor;
-import org.jspecify.nullness.Nullable;
+import org.jspecify.annotations.Nullable;
 
 /**
  * Chainable reverse abstract interpreter providing basic functionality.
@@ -119,7 +119,7 @@ public abstract class ChainableReverseAbstractInterpreter
    */
   protected @Nullable JSType getTypeIfRefinable(Node node, FlowScope scope) {
     switch (node.getToken()) {
-      case NAME:
+      case NAME -> {
         StaticTypedSlot nameVar = scope.getSlot(node.getString());
         if (nameVar != null) {
           JSType nameVarType = nameVar.getType();
@@ -129,8 +129,8 @@ public abstract class ChainableReverseAbstractInterpreter
           return nameVarType;
         }
         return null;
-
-      case GETPROP:
+      }
+      case GETPROP -> {
         String qualifiedName = node.getQualifiedName();
         if (qualifiedName == null) {
           return null;
@@ -147,8 +147,8 @@ public abstract class ChainableReverseAbstractInterpreter
           propVarType = getNativeType(UNKNOWN_TYPE);
         }
         return propVarType;
-      default:
-        break;
+      }
+      default -> {}
     }
     return null;
   }
@@ -162,24 +162,23 @@ public abstract class ChainableReverseAbstractInterpreter
   @CheckReturnValue
   protected FlowScope declareNameInScope(FlowScope scope, Node node, JSType type) {
     switch (node.getToken()) {
-      case NAME:
+      case NAME -> {
         return scope.inferSlotType(node.getString(), type);
-
-      case GETPROP:
+      }
+      case GETPROP -> {
         String qualifiedName = node.getQualifiedName();
         checkNotNull(qualifiedName);
 
         JSType origType = node.getJSType();
         origType = origType == null ? getNativeType(UNKNOWN_TYPE) : origType;
         return scope.inferQualifiedSlot(node, qualifiedName, origType, type, false);
-
-      case THIS:
+      }
+      case THIS -> {
         // "this" references aren't currently modeled in the CFG.
         return scope;
-
-      default:
-        throw new IllegalArgumentException("Node cannot be refined. \n" +
-            node.toStringTree());
+      }
+      default ->
+          throw new IllegalArgumentException("Node cannot be refined. \n" + node.toStringTree());
     }
   }
 
@@ -550,27 +549,21 @@ public abstract class ChainableReverseAbstractInterpreter
    * defined, and would be wrong in the general case.
    */
   private @Nullable JSType getNativeTypeForTypeOf(String value) {
-    switch (value) {
-      case "number":
-        return getNativeType(NUMBER_TYPE);
-      case "boolean":
-        return getNativeType(BOOLEAN_TYPE);
-      case "string":
-        return getNativeType(STRING_TYPE);
-      case "symbol":
-        return getNativeType(SYMBOL_TYPE);
-      case "undefined":
-        return getNativeType(VOID_TYPE);
-      case "object":
-        // NOTE: This is broader than it needs to be if it's from goog.typeof, but (a) it's more
-        // consistent with common usage of the native builtin typeof, (b) it's more consistent with
-        // TypeScript, and (c) it's more useful than simply not narrowing.
-        return typeRegistry.createUnionType(getNativeType(OBJECT_TYPE), getNativeType(NULL_TYPE));
-      case "function":
-        return getNativeType(FUNCTION_TYPE);
-      default:
-        return null;
-    }
+    return switch (value) {
+      case "number" -> getNativeType(NUMBER_TYPE);
+      case "boolean" -> getNativeType(BOOLEAN_TYPE);
+      case "string" -> getNativeType(STRING_TYPE);
+      case "symbol" -> getNativeType(SYMBOL_TYPE);
+      case "undefined" -> getNativeType(VOID_TYPE);
+      case "object" ->
+          // NOTE: This is broader than it needs to be if it's from goog.typeof, but (a) it's more
+          // consistent with common usage of the native builtin typeof, (b) it's more consistent
+          // with
+          // TypeScript, and (c) it's more useful than simply not narrowing.
+          typeRegistry.createUnionType(getNativeType(OBJECT_TYPE), getNativeType(NULL_TYPE));
+      case "function" -> getNativeType(FUNCTION_TYPE);
+      default -> null;
+    };
   }
 
   /** For when {@code goog.isArray} or {@code Array.isArray} returns true. */

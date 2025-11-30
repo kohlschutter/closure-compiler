@@ -17,14 +17,13 @@ package com.google.javascript.jscomp.integration;
 
 import static com.google.common.base.Preconditions.checkState;
 import static com.google.common.truth.Truth.assertThat;
-import static com.google.javascript.jscomp.base.JSCompStrings.lines;
 import static org.junit.Assert.assertThrows;
 
 import com.google.javascript.jscomp.AstValidator;
 import com.google.javascript.jscomp.Compiler;
 import com.google.javascript.jscomp.CompilerOptions;
 import com.google.javascript.jscomp.CompilerOptions.LanguageMode;
-import org.jspecify.nullness.Nullable;
+import org.jspecify.annotations.Nullable;
 import org.junit.Before;
 import org.junit.Test;
 import org.junit.runner.RunWith;
@@ -63,21 +62,23 @@ public final class TranspileOnlyIntegrationTest extends IntegrationTestCase {
     this.options.setSkipNonTranspilationPasses(true);
 
     String source =
-        lines(
-            "goog.module('x');", //
-            "function tag(x) {",
-            "  console.log(x);",
-            "}",
-            " tag``");
+        """
+        goog.module('x');
+        function tag(x) {
+          console.log(x);
+        }
+         tag``
+        """;
 
     String expected =
-        "var $jscomp$templatelit$98447280$0=$jscomp.createTemplateTagFirstArg([\"\"]);"
-            + //
-            "goog.module(\"x\");"
-            + "function tag(x){"
-            + "console.log(x)"
-            + "}"
-            + "tag($jscomp$templatelit$98447280$0)";
+        """
+        var $jscomp$templatelit$98447280$0=$jscomp.createTemplateTagFirstArg([""]);\
+        goog.module("x");\
+        function tag(x){\
+        console.log(x)\
+        }\
+        tag($jscomp$templatelit$98447280$0)\
+        """;
 
     Compiler compiler = compile(options, source);
 
@@ -112,29 +113,34 @@ public final class TranspileOnlyIntegrationTest extends IntegrationTestCase {
     test(options, js, transpiled);
   }
 
-  // Added when moving Es6ExtractClasses before RewriteClassMembers and fixing an issue with
-  // not rewriting extends
+  // Added when moving Es6ExtractClasses before RewriteClassMembers (now both merged into
+  // Es6NormalizeClasses) and fixing an issue with not rewriting extends
   @Test
   public void testClassExtendsAnonymousClass() {
     options.setLanguage(LanguageMode.UNSTABLE);
     options.setLanguageOut(LanguageMode.ECMASCRIPT5);
     test(
         options,
-        lines(
-            "class Bar {}", //
-            "class Foo extends (class extends Bar {}) {",
-            "  static x;",
-            "}"),
-        lines(
-            "var Bar = function() {};",
-            "var i0$classextends$var0 = function() {",
-            "  Bar.apply(this, arguments)",
-            "};",
-            "$jscomp.inherits(i0$classextends$var0, Bar);",
-            "var Foo = function() {",
-            "  i0$classextends$var0.apply(this, arguments)",
-            "};",
-            "$jscomp.inherits(Foo, i0$classextends$var0);",
-            "Foo.x;"));
+        """
+        class Bar {}
+        class Foo extends (class extends Bar {}) {
+          static x;
+        }
+        """,
+        """
+        var Bar = function() {};
+        var $jscomp$classExtends$98447280$0 = function() {
+          Bar.apply(this, arguments)
+        };
+        $jscomp.inherits($jscomp$classExtends$98447280$0, Bar);
+        var Foo = function() {
+          $jscomp$classExtends$98447280$0.apply(this, arguments)
+        };
+        $jscomp.inherits(Foo, $jscomp$classExtends$98447280$0);
+        Foo.$jscomp$staticInit$98447280$1 = function() {
+          Foo.x
+        };
+        Foo.$jscomp$staticInit$98447280$1()
+        """);
   }
 }

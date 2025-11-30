@@ -32,7 +32,7 @@ import java.util.Deque;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Objects;
-import org.jspecify.nullness.Nullable;
+import org.jspecify.annotations.Nullable;
 
 /**
  * Converts async functions to valid ES6 generator functions code.
@@ -364,7 +364,7 @@ public final class RewriteAsyncFunctions implements NodeTraversal.Callback, Comp
       } else if (asyncThisAndArgumentsContext != null) {
         // We're in the context of an async function's body, so we need to do some replacements.
         switch (n.getToken()) {
-          case NAME:
+          case NAME -> {
             if (n.matchesName("arguments")) {
               n.setString(ASYNC_ARGUMENTS + asyncThisAndArgumentsContext.uniqueId);
               if (compiler.getLifeCycleStage().isNormalized()) {
@@ -375,19 +375,25 @@ public final class RewriteAsyncFunctions implements NodeTraversal.Callback, Comp
               asyncThisAndArgumentsContext.recordAsyncArgumentsReplacementWasDone();
               compiler.reportChangeToChangeScope(contextRootNode);
             }
-            break;
-
-          case THIS:
+          }
+          case THIS -> {
             n.replaceWith(asyncThisAndArgumentsContext.createThisVariableReference(type(n)));
             compiler.reportChangeToChangeScope(contextRootNode);
-            break;
-
-          case SUPER:
+          }
+          case SUPER -> {
             {
               Node parent = n.getParent();
               if (!parent.isGetProp()) {
                 compiler.report(
                     JSError.make(parent, TranspilationUtil.CANNOT_CONVERT_YET, "super expression"));
+              } else if (NodeUtil.isLValue(parent)) {
+                // NOTE: `super.prop = x` is valid, and can be useful in overridden setters, but
+                // these cannot be async. For now, we don't support this construct in async methods.
+                compiler.report(
+                    JSError.make(
+                        parent.getParent(),
+                        TranspilationUtil.CANNOT_CONVERT_YET,
+                        "assignment to super property"));
               }
               // different name for parent for better readability
               Node superDotProperty = parent;
@@ -418,15 +424,11 @@ public final class RewriteAsyncFunctions implements NodeTraversal.Callback, Comp
               superDotProperty.replaceWith(getPropReplacement);
               compiler.reportChangeToChangeScope(contextRootNode);
             }
-            break;
-
-          case AWAIT:
-            // Awaits become yields in the converted async function's inner generator function.
-            n.replaceWith(astFactory.createYield(type(n), n.removeFirstChild()));
-            break;
-
-          default:
-            break;
+          }
+          case AWAIT ->
+              // Awaits become yields in the converted async function's inner generator function.
+              n.replaceWith(astFactory.createYield(type(n), n.removeFirstChild()));
+          default -> {}
         }
       }
     }

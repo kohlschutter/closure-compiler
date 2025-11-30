@@ -69,7 +69,7 @@ import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Map;
 import java.util.Set;
-import org.jspecify.nullness.Nullable;
+import org.jspecify.annotations.Nullable;
 import org.junit.Before;
 import org.junit.Test;
 import org.junit.runner.RunWith;
@@ -333,7 +333,7 @@ public class JSTypeRegistryTest {
     assertThat(paramList).hasSize(1);
     assertThat(paramList.get(0).isOptional()).isTrue();
     assertThat(paramList.get(0).getJSType().toString())
-        .isEqualTo("(Array<Array<(KEY|VALUE)>>|Iterable<Array<(KEY|VALUE)>>|null|undefined)");
+        .isEqualTo("(Array<Array<(K|V)>>|Iterable<Array<(K|V)>,?,?>|null|undefined)");
   }
 
   /** Returns a scope that overrides a few methods from {@link AbstractStaticScope} */

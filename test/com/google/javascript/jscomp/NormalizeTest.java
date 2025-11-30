@@ -24,10 +24,10 @@ import com.google.javascript.jscomp.CompilerOptions.PropertyCollapseLevel;
 import com.google.javascript.jscomp.deps.ModuleLoader.ResolutionMode;
 import com.google.javascript.jscomp.testing.TestExternsBuilder;
 import com.google.javascript.rhino.Node;
-import java.util.ArrayList;
 import java.util.Iterator;
 import java.util.LinkedHashSet;
 import java.util.Set;
+import java.util.function.Function;
 import java.util.function.Predicate;
 import org.junit.Before;
 import org.junit.Test;
@@ -58,12 +58,6 @@ public final class NormalizeTest extends CompilerTestCase {
     return options;
   }
 
-  @Override
-  protected int getNumRepetitions() {
-    // The normalize pass is only run once.
-    return 1;
-  }
-
   @Before
   public void customSetUp() throws Exception {
     // Validate that Normalize copies colors onto any nodes it synthesizes
@@ -76,28 +70,30 @@ public final class NormalizeTest extends CompilerTestCase {
   public void testMultipleForOfLoopsWithSameNameInductionVariable() {
     Sources srcs =
         srcs(
-            lines(
-                "function* inorder1(t) {",
-                "    for (var x of []) {",
-                "      yield x;",
-                "    }",
-                "    for (var x of []) {",
-                "      yield x;",
-                "    }",
-                "}"));
+            """
+            function* inorder1(t) {
+                for (var x of []) {
+                  yield x;
+                }
+                for (var x of []) {
+                  yield x;
+                }
+            }
+            """);
 
     Expected expected =
         expected(
-            lines(
-                "function* inorder1(t) {",
-                "    var x;",
-                "    for (x of []) {",
-                "      yield x;",
-                "    }",
-                "    for (x of []) {",
-                "      yield x;",
-                "    }",
-                "}"));
+            """
+            function* inorder1(t) {
+                var x;
+                for (x of []) {
+                  yield x;
+                }
+                for (x of []) {
+                  yield x;
+                }
+            }
+            """);
 
     test(srcs, expected); //
   }
@@ -135,9 +131,10 @@ public final class NormalizeTest extends CompilerTestCase {
   @SuppressWarnings("RhinoNodeGetFirstFirstChild") // to allow adding separate comments per-child
   public void testRestConstAnnotationPropagation() {
     testSame(
-        lines(
-            "const {...x} = {a: 3};", //
-            "var y = x;"));
+        """
+        const {...x} = {a: 3};
+        var y = x;
+        """);
     Node root = getLastCompiler().getRoot();
     Node scriptNode =
         root.getLastChild() // ROOT of input sources
@@ -171,10 +168,11 @@ public final class NormalizeTest extends CompilerTestCase {
   @SuppressWarnings("RhinoNodeGetFirstFirstChild") // to allow adding separate comments per-child
   public void testRestConstAnnotationPropagation_onlyConstVars() {
     testSame(
-        lines(
-            "const obj = {a: 3, b: 'string', c: null};",
-            "const {...rest} = obj;",
-            "const y = rest;"));
+        """
+        const obj = {a: 3, b: 'string', c: null};
+        const {...rest} = obj;
+        const y = rest;
+        """);
     Node root = getLastCompiler().getRoot();
     Node scriptNode =
         root.getLastChild() // ROOT of input sources
@@ -218,7 +216,7 @@ public final class NormalizeTest extends CompilerTestCase {
 
   @Test
   public void testConstRHSPropagation() {
-    testSame(lines("const obj = function inner() {inner();};"));
+    testSame("const obj = function inner() {inner();};");
     Node root = getLastCompiler().getRoot();
     Node scriptNode =
         root.getLastChild() // ROOT of input sources
@@ -236,7 +234,7 @@ public final class NormalizeTest extends CompilerTestCase {
 
   @Test
   public void testConstRHSPropagation2() {
-    testSame(lines("/** @const */ var obj = function inner() {inner();};"));
+    testSame("/** @const */ var obj = function inner() {inner();};");
     Node root = getLastCompiler().getRoot();
     Node scriptNode =
         root.getLastChild() // ROOT of input sources
@@ -256,18 +254,20 @@ public final class NormalizeTest extends CompilerTestCase {
   public void testNullishCoalesce() {
     test("var a = x ?? y, b = foo()", "var a = x ?? y; var b = foo()");
     test(
-        lines(
-            "let x = a ?? b;",
-            "{ let x = a ?? b; }",
-            "{ let x = a ?? b; }",
-            "{ let x = a ?? b; }",
-            "{ let x = a ?? b; }"),
-        lines(
-            "let x = a ?? b;",
-            "{ let x$jscomp$1 = a ?? b; }",
-            "{ let x$jscomp$2 = a ?? b; }",
-            "{ let x$jscomp$3 = a ?? b; }",
-            "{ let x$jscomp$4 = a ?? b; }"));
+        """
+        let x = a ?? b;
+        { let x = a ?? b; }
+        { let x = a ?? b; }
+        { let x = a ?? b; }
+        { let x = a ?? b; }
+        """,
+        """
+        let x = a ?? b;
+        { let x$jscomp$1 = a ?? b; }
+        { let x$jscomp$2 = a ?? b; }
+        { let x$jscomp$3 = a ?? b; }
+        { let x$jscomp$4 = a ?? b; }
+        """);
   }
 
   @Test
@@ -318,15 +318,17 @@ public final class NormalizeTest extends CompilerTestCase {
   public void testSplitVar_forLoopCrash() {
     // Verify b/174247914
     test(
-        lines(
-            "for (let j;;);", //
-            "var i;",
-            "for(var i=0;;);"),
-        lines(
-            "for (let j;;);", //
-            "var i;",
-            "i = 0;",
-            "for(;;);"));
+        """
+        for (let j;;);
+        var i;
+        for(var i=0;;);
+        """,
+        """
+        for (let j;;);
+        var i;
+        i = 0;
+        for(;;);
+        """);
   }
 
   @Test
@@ -345,117 +347,206 @@ public final class NormalizeTest extends CompilerTestCase {
   @Test
   public void testLetManyBlocks() {
     test(
-        lines(
-            "let a = 'outer';",
-            "{ let a = 'inner1'; }",
-            "{ let a = 'inner2'; }",
-            "{ let a = 'inner3'; }",
-            "{ let a = 'inner4'; }"),
-        lines(
-            "let a = 'outer';",
-            "{ let a$jscomp$1 = 'inner1'; }",
-            "{ let a$jscomp$2 = 'inner2'; }",
-            "{ let a$jscomp$3 = 'inner3'; }",
-            "{ let a$jscomp$4 = 'inner4'; }"));
+        """
+        let a = 'outer';
+        { let a = 'inner1'; }
+        { let a = 'inner2'; }
+        { let a = 'inner3'; }
+        { let a = 'inner4'; }
+        """,
+        """
+        let a = 'outer';
+        { let a$jscomp$1 = 'inner1'; }
+        { let a$jscomp$2 = 'inner2'; }
+        { let a$jscomp$3 = 'inner3'; }
+        { let a$jscomp$4 = 'inner4'; }
+        """);
   }
 
   @Test
   public void testLetOutsideAndInsideForLoop() {
     test(
-        lines("let a = 'outer';", "for (let a = 'inner';;) {", "  break;", "}", "alert(a);"),
-        lines(
-            "let a = 'outer';",
-            "for (let a$jscomp$1 = 'inner';;) {",
-            "  break;",
-            "}",
-            "alert(a);"));
+        """
+        let a = 'outer';
+        for (let a = 'inner';;) {
+          break;
+        }
+        alert(a);
+        """,
+        """
+        let a = 'outer';
+        for (let a$jscomp$1 = 'inner';;) {
+          break;
+        }
+        alert(a);
+        """);
   }
 
   @Test
   public void testLetOutsideAndInsideBlock() {
     test(
-        lines("let a = 'outer';", "{", "  let a = 'inner';", "}", "alert(a);"),
-        lines("let a = 'outer';", "{", "  let a$jscomp$1 = 'inner';", "}", "alert(a);"));
+        """
+        let a = 'outer';
+        {
+          let a = 'inner';
+        }
+        alert(a);
+        """,
+        """
+        let a = 'outer';
+        {
+          let a$jscomp$1 = 'inner';
+        }
+        alert(a);
+        """);
   }
 
   @Test
   public void testLetOutsideAndInsideFn() {
     test(
-        lines("let a = 'outer';", "function f() {", "  let a = 'inner';", "}", "alert(a);"),
-        lines(
-            "let a = 'outer';", "function f() {", "  let a$jscomp$1 = 'inner';", "}", "alert(a);"));
+        """
+        let a = 'outer';
+        function f() {
+          let a = 'inner';
+        }
+        alert(a);
+        """,
+        """
+        let a = 'outer';
+        function f() {
+          let a$jscomp$1 = 'inner';
+        }
+        alert(a);
+        """);
   }
 
   @Test
   public void testRemoveEmptiesFromClass() {
     test(
-        lines("class Foo {", "  m1() {};", "  m2() {};", "}"),
-        lines("class Foo {", "  m1() {}", "  m2() {}", "}"));
+        """
+        class Foo {
+          m1() {};
+          m2() {};
+        }
+        """,
+        """
+        class Foo {
+          m1() {}
+          m2() {}
+        }
+        """);
   }
 
   @Test
   public void testClassField() {
     test(
-        lines(
-            "/** @unrestricted */",
-            "class Foo {", //
-            "  f1;",
-            "  ['f2'] = 1;",
-            "  static f3;",
-            "  static 'f4' = 'hi';",
-            "}"),
-        lines(
-            "class Foo {", //
-            "  f1",
-            "  ['f2'] = 1",
-            "  static f3",
-            "  static 'f4' = 'hi'",
-            "}"));
+        """
+        /** @unrestricted */
+        class Foo {
+          f1;
+          ['f2'] = 1;
+          static f3;
+          static 'f4' = 'hi';
+        }
+        """,
+        """
+        class Foo {
+          f1
+          ['f2'] = 1
+          static f3
+          static 'f4' = 'hi'
+        }
+        """);
   }
 
   @Test
   public void testClassStaticBlock() {
     test(
-        lines(
-            "var x;",
-            "class Foo {", //
-            "  static {",
-            "    var x;",
-            "    let y;",
-            "    this.x;",
-            "  }",
-            "  static {",
-            "    var x;",
-            "    let y;",
-            "  }",
-            "}",
-            "class Bar {",
-            "  static {",
-            "    var x;",
-            "    let y;",
-            "    this.x;",
-            "  }",
-            "}"),
-        lines(
-            "var x;",
-            "class Foo {", //
-            "  static {",
-            "    var x$jscomp$1;",
-            "    let y;",
-            "    this.x;",
-            "  }",
-            "  static {",
-            "    var x$jscomp$2;",
-            "    let y$jscomp$1;",
-            "  }",
-            "}",
-            "class Bar {",
-            "  static {",
-            "    var x$jscomp$3;",
-            "    let y$jscomp$2;",
-            "    this.x;",
-            "  }",
-            "}"));
+        """
+        var x;
+        class Foo {
+          static {
+            var x;
+            let y;
+            this.x;
+          }
+          static {
+            var x;
+            let y;
+          }
+        }
+        class Bar {
+          static {
+            var x;
+            let y;
+            this.x;
+          }
+        }
+        """,
+        """
+        var x;
+        class Foo {
+          static {
+            var x$jscomp$1;
+            let y;
+            this.x;
+          }
+          static {
+            var x$jscomp$2;
+            let y$jscomp$1;
+          }
+        }
+        class Bar {
+          static {
+            var x$jscomp$3;
+            let y$jscomp$2;
+            this.x;
+          }
+        }
+        """);
+  }
+
+  @Test
+  public void testClassStaticBlock_innerFunctionHoisted() {
+    test(
+        """
+        var x;
+        class Foo {
+          static {
+            this.x;
+            function f1() {}
+          }
+          static {
+            let y;
+            function f2() {}
+          }
+        }
+        class Bar {
+          static {
+            var z;
+            function f3() {}
+          }
+        }
+        """,
+        """
+        var x;
+        class Foo {
+          static {
+            function f1() {}
+            this.x;
+          }
+          static {
+            function f2() {}
+            let y;
+          }
+        }
+        class Bar {
+          static {
+            function f3() {}
+            var z;
+          }
+        }
+        """);
   }
 
   @Test
@@ -470,64 +561,89 @@ public final class NormalizeTest extends CompilerTestCase {
 
   @Test
   public void testLetInGlobalHoistScope() {
-    testSame(lines("if (true) {", "  let x = 1; alert(x);", "}"));
+    testSame(
+        """
+        if (true) {
+          let x = 1; alert(x);
+        }
+        """);
 
     test(
-        lines("if (true) {", "  let x = 1; alert(x);", "} else {", "  let x = 1; alert(x);", "}"),
-        lines(
-            "if (true) {",
-            "  let x = 1; alert(x);",
-            "} else {",
-            "  let x$jscomp$1 = 1; alert(x$jscomp$1);",
-            "}"));
+        """
+        if (true) {
+          let x = 1; alert(x);
+        } else {
+          let x = 1; alert(x);
+        }
+        """,
+        """
+        if (true) {
+          let x = 1; alert(x);
+        } else {
+          let x$jscomp$1 = 1; alert(x$jscomp$1);
+        }
+        """);
   }
 
   @Test
   public void testConstInGlobalHoistScope() {
-    testSame(lines("if (true) {", "  const x = 1; alert(x);", "}"));
+    testSame(
+        """
+        if (true) {
+          const x = 1; alert(x);
+        }
+        """);
 
     test(
-        lines(
-            "if (true) {", "  const x = 1; alert(x);", "} else {", "  const x = 1; alert(x);", "}"),
-        lines(
-            "if (true) {",
-            "  const x = 1; alert(x);",
-            "} else {",
-            "  const x$jscomp$1 = 1; alert(x$jscomp$1);",
-            "}"));
+        """
+        if (true) {
+          const x = 1; alert(x);
+        } else {
+          const x = 1; alert(x);
+        }
+        """,
+        """
+        if (true) {
+          const x = 1; alert(x);
+        } else {
+          const x$jscomp$1 = 1; alert(x$jscomp$1);
+        }
+        """);
   }
 
   @Test
   public void testVarReferencedInHoistedFunction() {
     test(
-        lines(
-            "var f1 = function() {",
-            "  var x;",
-            "};",
-            "",
-            "(function () {",
-            "  {",
-            "    var x = 0;",
-            "  }",
-            "  function f2() {",
-            "    alert(x);",
-            "  }",
-            "  f2();",
-            "})();"),
-        lines(
-            "var f1 = function() {",
-            "  var x;",
-            "};",
-            "",
-            "(function () {",
-            "  function f2() {",
-            "    alert(x$jscomp$1);",
-            "  }",
-            "  {",
-            "    var x$jscomp$1 = 0;",
-            "  }",
-            "  f2();",
-            "})();"));
+        """
+        var f1 = function() {
+          var x;
+        };
+
+        (function () {
+          {
+            var x = 0;
+          }
+          function f2() {
+            alert(x);
+          }
+          f2();
+        })();
+        """,
+        """
+        var f1 = function() {
+          var x;
+        };
+
+        (function () {
+          function f2() {
+            alert(x$jscomp$1);
+          }
+          {
+            var x$jscomp$1 = 0;
+          }
+          f2();
+        })();
+        """);
   }
 
   @Test
@@ -573,31 +689,35 @@ public final class NormalizeTest extends CompilerTestCase {
     test(
         srcs("a.x ||= b"),
         expected(
-            lines(
-                "let $jscomp$logical$assign$tmpm1146332801$0;", //
-                "($jscomp$logical$assign$tmpm1146332801$0 = a).x ",
-                "   ||",
-                "($jscomp$logical$assign$tmpm1146332801$0.x = b);")));
+            """
+            let $jscomp$logical$assign$tmpm1146332801$0;
+            ($jscomp$logical$assign$tmpm1146332801$0 = a).x
+               ||
+            ($jscomp$logical$assign$tmpm1146332801$0.x = b);
+            """));
     test(
         srcs("a.foo &&= null"),
         expected(
-            lines(
-                "let $jscomp$logical$assign$tmpm1146332801$0;", //
-                "($jscomp$logical$assign$tmpm1146332801$0 = a).foo ",
-                "   &&",
-                "($jscomp$logical$assign$tmpm1146332801$0.foo = null);")));
+            """
+            let $jscomp$logical$assign$tmpm1146332801$0;
+            ($jscomp$logical$assign$tmpm1146332801$0 = a).foo
+               &&
+            ($jscomp$logical$assign$tmpm1146332801$0.foo = null);
+            """));
     test(
         srcs(
-            lines(
-                "foo().x = null;", //
-                "foo().x ??= y")),
+            """
+            foo().x = null;
+            foo().x ??= y
+            """),
         expected(
-            lines(
-                "foo().x = null;", //
-                "let $jscomp$logical$assign$tmpm1146332801$0;",
-                "($jscomp$logical$assign$tmpm1146332801$0 = foo()).x ",
-                "   ??",
-                "($jscomp$logical$assign$tmpm1146332801$0.x = y);")));
+            """
+            foo().x = null;
+            let $jscomp$logical$assign$tmpm1146332801$0;
+            ($jscomp$logical$assign$tmpm1146332801$0 = foo()).x
+               ??
+            ($jscomp$logical$assign$tmpm1146332801$0.x = y);
+            """));
   }
 
   @Test
@@ -605,36 +725,39 @@ public final class NormalizeTest extends CompilerTestCase {
     test(
         srcs("a[x] ||= b"),
         expected(
-            lines(
-                "let $jscomp$logical$assign$tmpm1146332801$0;", //
-                "let $jscomp$logical$assign$tmpindexm1146332801$0;",
-                "($jscomp$logical$assign$tmpm1146332801$0 = a)",
-                "[$jscomp$logical$assign$tmpindexm1146332801$0 = x]",
-                "   ||",
-                "($jscomp$logical$assign$tmpm1146332801$0",
-                "[$jscomp$logical$assign$tmpindexm1146332801$0] = b);")));
+            """
+            let $jscomp$logical$assign$tmpm1146332801$0;
+            let $jscomp$logical$assign$tmpindexm1146332801$0;
+            ($jscomp$logical$assign$tmpm1146332801$0 = a)
+            [$jscomp$logical$assign$tmpindexm1146332801$0 = x]
+               ||
+            ($jscomp$logical$assign$tmpm1146332801$0
+            [$jscomp$logical$assign$tmpindexm1146332801$0] = b);
+            """));
     test(
         srcs("a[x + 5 + 's'] &&= b"),
         expected(
-            lines(
-                "let $jscomp$logical$assign$tmpm1146332801$0;", //
-                "let $jscomp$logical$assign$tmpindexm1146332801$0;",
-                "($jscomp$logical$assign$tmpm1146332801$0 = a)",
-                "[$jscomp$logical$assign$tmpindexm1146332801$0 = (x + 5 + 's')] ",
-                "   &&",
-                "($jscomp$logical$assign$tmpm1146332801$0",
-                "[$jscomp$logical$assign$tmpindexm1146332801$0] = b);")));
+            """
+            let $jscomp$logical$assign$tmpm1146332801$0;
+            let $jscomp$logical$assign$tmpindexm1146332801$0;
+            ($jscomp$logical$assign$tmpm1146332801$0 = a)
+            [$jscomp$logical$assign$tmpindexm1146332801$0 = (x + 5 + 's')]
+               &&
+            ($jscomp$logical$assign$tmpm1146332801$0
+            [$jscomp$logical$assign$tmpindexm1146332801$0] = b);
+            """));
     test(
         srcs("foo[x] ??= bar[y]"),
         expected(
-            lines(
-                "let $jscomp$logical$assign$tmpm1146332801$0;", //
-                "let $jscomp$logical$assign$tmpindexm1146332801$0;",
-                "($jscomp$logical$assign$tmpm1146332801$0 = foo)",
-                "[$jscomp$logical$assign$tmpindexm1146332801$0 = x]",
-                "   ??",
-                "($jscomp$logical$assign$tmpm1146332801$0",
-                "[$jscomp$logical$assign$tmpindexm1146332801$0] = bar[y]);")));
+            """
+            let $jscomp$logical$assign$tmpm1146332801$0;
+            let $jscomp$logical$assign$tmpindexm1146332801$0;
+            ($jscomp$logical$assign$tmpm1146332801$0 = foo)
+            [$jscomp$logical$assign$tmpindexm1146332801$0 = x]
+               ??
+            ($jscomp$logical$assign$tmpm1146332801$0
+            [$jscomp$logical$assign$tmpindexm1146332801$0] = bar[y]);
+            """));
   }
 
   @Test
@@ -647,22 +770,24 @@ public final class NormalizeTest extends CompilerTestCase {
   @Test
   public void logicalAssignmentNestedPropertyReference() {
     test(
-        lines(
-            "const foo = {}, bar = {};", //
-            "foo.x ||= (foo.y &&= (bar.z ??= 'something'));"),
-        lines(
-            "const foo = {}; const bar = {};", //
-            "let $jscomp$logical$assign$tmpm1146332801$0;",
-            "let $jscomp$logical$assign$tmpm1146332801$1;",
-            "let $jscomp$logical$assign$tmpm1146332801$2;",
-            "($jscomp$logical$assign$tmpm1146332801$2 = foo).x",
-            "   ||",
-            "($jscomp$logical$assign$tmpm1146332801$2.x",
-            " = ($jscomp$logical$assign$tmpm1146332801$1 = foo).y",
-            "   &&",
-            "($jscomp$logical$assign$tmpm1146332801$1.y",
-            " = ($jscomp$logical$assign$tmpm1146332801$0 = bar).z",
-            "   ?? ($jscomp$logical$assign$tmpm1146332801$0.z = 'something')));"));
+        """
+        const foo = {}, bar = {};
+        foo.x ||= (foo.y &&= (bar.z ??= 'something'));
+        """,
+        """
+        const foo = {}; const bar = {};
+        let $jscomp$logical$assign$tmpm1146332801$0;
+        let $jscomp$logical$assign$tmpm1146332801$1;
+        let $jscomp$logical$assign$tmpm1146332801$2;
+        ($jscomp$logical$assign$tmpm1146332801$2 = foo).x
+           ||
+        ($jscomp$logical$assign$tmpm1146332801$2.x
+         = ($jscomp$logical$assign$tmpm1146332801$1 = foo).y
+           &&
+        ($jscomp$logical$assign$tmpm1146332801$1.y
+         = ($jscomp$logical$assign$tmpm1146332801$0 = bar).z
+           ?? ($jscomp$logical$assign$tmpm1146332801$0.z = 'something')));
+        """);
   }
 
   @Test
@@ -809,20 +934,22 @@ public final class NormalizeTest extends CompilerTestCase {
         "function f() { if (x) return; foo(); function foo() {} }",
         "function f() {function foo() {} if (x) return; foo(); }");
     test(
-        lines(
-            "function f() { ",
-            "  function foo() {} ",
-            "  if (x) return;",
-            "  foo(); ",
-            "  function bar() {} ",
-            "}"),
-        lines(
-            "function f() {",
-            "  function foo() {}",
-            "  function bar() {}",
-            "  if (x) return;",
-            "  foo();",
-            "}"));
+        """
+        function f() {
+          function foo() {}
+          if (x) return;
+          foo();
+          function bar() {}
+        }
+        """,
+        """
+        function f() {
+          function foo() {}
+          function bar() {}
+          if (x) return;
+          foo();
+        }
+        """);
   }
 
   @Test
@@ -929,12 +1056,36 @@ public final class NormalizeTest extends CompilerTestCase {
             "function bar() {let a; let a$jscomp$1; a + a$jscomp$1;}"),
         expected(
             "function foo() {var a; a;}",
-            "function bar() {let a$jscomp$1; let a$jscomp$1$jscomp$1; a$jscomp$1 +"
-                + " a$jscomp$1$jscomp$1;}"));
+            """
+            function bar() {let a$jscomp$1; let a$jscomp$1$jscomp$1; a$jscomp$1 +
+             a$jscomp$1$jscomp$1;}
+            """));
 
     test(
         srcs("var a;", "import {a as a} from './foo.js'; let b = a;"),
         expected("var a;", "import {a as a$jscomp$1} from './foo.js'; let b = a$jscomp$1;"));
+
+    test(
+        """
+        function one() {
+          var index = 1;
+          return index;
+        }
+        function two() {
+          var index = 2;
+          var id = (index += 3).toString();
+        }
+        """,
+        """
+        function one() {
+          var index = 1;
+          return index;
+        }
+        function two() {
+          var index$jscomp$1 = 2;
+          var id = (index$jscomp$1 = index$jscomp$1 + 3).toString();
+        }
+        """);
   }
 
   @Test
@@ -960,6 +1111,29 @@ public final class NormalizeTest extends CompilerTestCase {
     test(
         "function f(x) { x; }\nfunction g({y: {x}}) { x; }",
         "function f(x) { x; }\nfunction g({y: {x: x$jscomp$1}}) { x$jscomp$1; }");
+  }
+
+  @Test
+  public void testNormalize_createsUniqueNamesInFunctionBody_avoidsShadowingWithDefaultParams() {
+    test(
+        """
+        function x() {}
+        var y = 1;
+        function f(z=x, w=y) {
+          let x = y;
+          var y = 3;
+          return w;
+        }
+        """,
+        """
+        function x() {}
+        var y = 1;
+        function f(z=x, w=y) {
+          let x$jscomp$1 = y$jscomp$1;
+          var y$jscomp$1 = 3;
+          return w;
+        }
+        """);
   }
 
   @Test
@@ -1094,73 +1268,116 @@ public final class NormalizeTest extends CompilerTestCase {
   @Test
   public void testIssue166f() {
     test(
-        lines("function a() {", "  var e = 2;", "  try { throw 1 } catch(e) {}", "}"),
-        lines("function a() {", "  var e = 2;", "  try { throw 1 } catch(e$jscomp$1) {}", "}"));
+        """
+        function a() {
+          var e = 2;
+          try { throw 1 } catch(e) {}
+        }
+        """,
+        """
+        function a() {
+          var e = 2;
+          try { throw 1 } catch(e$jscomp$1) {}
+        }
+        """);
   }
 
   @Test
   public void testIssue166g() {
     test(
-        lines("function a() {", "  try { throw 1 } catch(e) {}", "  var e = 2;", "}"),
-        lines("function a() {", "  try { throw 1 } catch(e$jscomp$1) {}", "  var e = 2;", "}"));
+        """
+        function a() {
+          try { throw 1 } catch(e) {}
+          var e = 2;
+        }
+        """,
+        """
+        function a() {
+          try { throw 1 } catch(e$jscomp$1) {}
+          var e = 2;
+        }
+        """);
   }
 
   @Test
   public void testLetsInSeparateBlocks() {
     test(
-        lines(
-            "if (x) {", "  let e;", "  alert(e);", "}", "if (y) {", "  let e;", "  alert(e);", "}"),
-        lines(
-            "if (x) {",
-            "  let e;",
-            "  alert(e);",
-            "}",
-            "if (y) {",
-            "  let e$jscomp$1;",
-            "  alert(e$jscomp$1);",
-            "}"));
+        """
+        if (x) {
+          let e;
+          alert(e);
+        }
+        if (y) {
+          let e;
+          alert(e);
+        }
+        """,
+        """
+        if (x) {
+          let e;
+          alert(e);
+        }
+        if (y) {
+          let e$jscomp$1;
+          alert(e$jscomp$1);
+        }
+        """);
   }
 
   @Test
   public void testCatchesInSeparateBlocks() {
     test(
-        lines(
-            "if (x) {",
-            "  try {",
-            "    throw 1;",
-            "  } catch (e) {",
-            "    alert(e);",
-            "  }",
-            "}",
-            "if (y) {",
-            "  try {",
-            "    throw 2;",
-            "  } catch (e) {",
-            "    alert(e);",
-            "  }",
-            "}"),
-        lines(
-            "if (x) {",
-            "  try {",
-            "    throw 1;",
-            "  } catch (e) {",
-            "    alert(e);",
-            "  }",
-            "}",
-            "if (y) {",
-            "  try {",
-            "    throw 2;",
-            "  } catch (e$jscomp$1) {",
-            "    alert(e$jscomp$1);",
-            "  }",
-            "}"));
+        """
+        if (x) {
+          try {
+            throw 1;
+          } catch (e) {
+            alert(e);
+          }
+        }
+        if (y) {
+          try {
+            throw 2;
+          } catch (e) {
+            alert(e);
+          }
+        }
+        """,
+        """
+        if (x) {
+          try {
+            throw 1;
+          } catch (e) {
+            alert(e);
+          }
+        }
+        if (y) {
+          try {
+            throw 2;
+          } catch (e$jscomp$1) {
+            alert(e$jscomp$1);
+          }
+        }
+        """);
   }
 
   @Test
   public void testDeclInCatchBlock() {
     test(
-        lines("var x;", "try {", "} catch (e) {", "  let x;", "}"),
-        lines("var x;", "try {", "} catch (e) {", "  let x$jscomp$1", "}"));
+        """
+        var x;
+        try {
+        } catch (e) {
+          let x;
+        }
+        """,
+        """
+        var x;
+        try {
+        } catch (e) {
+          let x$jscomp$1
+        }
+        """);
   }
 
   @Test
@@ -1170,24 +1387,11 @@ public final class NormalizeTest extends CompilerTestCase {
   }
 
   @Test
-  public void testNormalizeSyntheticCode() {
-    Compiler compiler = new Compiler();
-    CompilerOptions options = new CompilerOptions();
-    options.setEmitUseStrict(false);
-    compiler.init(new ArrayList<SourceFile>(), new ArrayList<SourceFile>(), options);
-    String code = "function f(x) {} function g(x) {}";
-    Node ast = compiler.parseSyntheticCode("testNormalizeSyntheticCode", code);
-    Normalize.normalizeSyntheticCode(compiler, ast, "prefix_");
-    assertThat(compiler.toSource(ast))
-        .isEqualTo("function f(x$jscomp$prefix_0){}function g(x$jscomp$prefix_1){}");
-  }
-
-  @Test
   public void testIsConstant() {
     testSame("var CONST = 3; var b = CONST;");
     Node n = getLastCompiler().getRoot();
 
-    Set<Node> constantNodes = findNodesWithProperty(n, IS_CONSTANT_NAME);
+    Set<Node> constantNodes = findNodesWithProperty(n, NormalizeTest::isConstantName);
     assertThat(constantNodes).hasSize(2);
     for (Node hasProp : constantNodes) {
       assertThat(hasProp.getString()).isEqualTo("CONST");
@@ -1201,7 +1405,7 @@ public final class NormalizeTest extends CompilerTestCase {
     testSame("var someNonConstVar = function foo() {};");
     Node n = getLastCompiler().getRoot();
 
-    Set<Node> constantNodes = findNodesWithProperty(n, IS_CONSTANT_NAME);
+    Set<Node> constantNodes = findNodesWithProperty(n, NormalizeTest::isConstantName);
     assertThat(constantNodes).hasSize(1);
     assertThat(constantNodes.iterator().next().getString()).isEqualTo("foo");
   }
@@ -1213,7 +1417,7 @@ public final class NormalizeTest extends CompilerTestCase {
     testSame("const someConstVar = function foo() {};");
     Node n = getLastCompiler().getRoot();
 
-    Set<Node> constantNodes = findNodesWithProperty(n, IS_CONSTANT_NAME);
+    Set<Node> constantNodes = findNodesWithProperty(n, NormalizeTest::isConstantName);
     assertThat(constantNodes).hasSize(2); // {someConstVar, foo}
     Iterator<Node> itr = constantNodes.iterator();
     assertThat(itr.next().getString()).isEqualTo("foo");
@@ -1227,7 +1431,7 @@ public final class NormalizeTest extends CompilerTestCase {
     testSame("const someConstVar = function foo() { foo(); };");
     Node n = getLastCompiler().getRoot();
 
-    Set<Node> constantNodes = findNodesWithProperty(n, IS_CONSTANT_NAME);
+    Set<Node> constantNodes = findNodesWithProperty(n, NormalizeTest::isConstantName);
     assertThat(constantNodes).hasSize(3); // {someConstVar, foo, foo}
     Iterator<Node> itr = constantNodes.iterator();
     assertThat(itr.next().getString()).isEqualTo("foo");
@@ -1240,13 +1444,14 @@ public final class NormalizeTest extends CompilerTestCase {
   @Test
   public void testRHSFunctionExpressionNameNodeIsConstant3() {
     testSame(
-        lines(
-            "const someConstVar = function foo() { foo(); };",
-            // this call to something undefined but having the same name foo is not marked const
-            "foo();"));
+        """
+        const someConstVar = function foo() { foo(); };
+        // this call to something undefined but having the same name foo is not marked const
+        foo();
+        """);
     Node n = getLastCompiler().getRoot();
 
-    Set<Node> constantNodes = findNodesWithProperty(n, IS_CONSTANT_NAME);
+    Set<Node> constantNodes = findNodesWithProperty(n, NormalizeTest::isConstantName);
     assertThat(constantNodes).hasSize(3); // {someConstVar, foo, foo}
     Iterator<Node> itr = constantNodes.iterator();
 
@@ -1260,13 +1465,14 @@ public final class NormalizeTest extends CompilerTestCase {
   @Test
   public void testRHSFunctionExpressionNameNodeIsConstant4() {
     testSame(
-        lines(
-            "let someNonConstVar = function foo() { foo(); };",
-            // this call to something undefined but having the same name foo is not marked const
-            "foo();"));
+        """
+        let someNonConstVar = function foo() { foo(); };
+        // this call to something undefined but having the same name foo is not marked const
+        foo();
+        """);
     Node n = getLastCompiler().getRoot();
 
-    Set<Node> constantNodes = findNodesWithProperty(n, IS_CONSTANT_NAME);
+    Set<Node> constantNodes = findNodesWithProperty(n, NormalizeTest::isConstantName);
     assertThat(constantNodes).hasSize(2); // {foo, foo}
     Iterator<Node> itr = constantNodes.iterator();
 
@@ -1281,7 +1487,7 @@ public final class NormalizeTest extends CompilerTestCase {
     testSame("use(function foo(i) { foo(i-1);});");
     Node n = getLastCompiler().getRoot();
 
-    Set<Node> constantNodes = findNodesWithProperty(n, IS_CONSTANT_NAME);
+    Set<Node> constantNodes = findNodesWithProperty(n, NormalizeTest::isConstantName);
     assertThat(constantNodes).hasSize(2); // {foo, foo}
     Iterator<Node> itr = constantNodes.iterator();
 
@@ -1294,13 +1500,14 @@ public final class NormalizeTest extends CompilerTestCase {
   @Test
   public void testFunctionExpressionNameNodeIsConstant2() {
     testSame(
-        lines(
-            "use(function foo(i) { foo(i-1);});",
-            // this call to something undefined but having the same name foo is not marked const
-            "foo();"));
+        """
+        use(function foo(i) { foo(i-1);});
+        // this call to something undefined but having the same name foo is not marked const
+        foo();
+        """);
     Node n = getLastCompiler().getRoot();
 
-    Set<Node> constantNodes = findNodesWithProperty(n, IS_CONSTANT_NAME);
+    Set<Node> constantNodes = findNodesWithProperty(n, NormalizeTest::isConstantName);
     assertThat(constantNodes).hasSize(2); // {foo, foo}
     Iterator<Node> itr = constantNodes.iterator();
 
@@ -1315,7 +1522,7 @@ public final class NormalizeTest extends CompilerTestCase {
         "const {CONST: CONST} = {CONST:3}; let b = CONST;");
     Node n = getLastCompiler().getRoot();
 
-    Set<Node> constantNodes = findNodesWithProperty(n, IS_CONSTANT_NAME);
+    Set<Node> constantNodes = findNodesWithProperty(n, NormalizeTest::isConstantName);
     assertThat(constantNodes).hasSize(2);
     for (Node hasProp : constantNodes) {
       assertThat(hasProp.getString()).isEqualTo("CONST");
@@ -1329,7 +1536,7 @@ public final class NormalizeTest extends CompilerTestCase {
     test("const {CONST = 3} = {}; var b = CONST;", "const {CONST: CONST = 3} = {}; var b = CONST;");
     Node n = getLastCompiler().getRoot();
 
-    Set<Node> constantNodes = findNodesWithProperty(n, IS_CONSTANT_NAME);
+    Set<Node> constantNodes = findNodesWithProperty(n, NormalizeTest::isConstantName);
     assertThat(constantNodes).hasSize(2);
     for (Node hasProp : constantNodes) {
       assertThat(hasProp.getString()).isEqualTo("CONST");
@@ -1343,7 +1550,7 @@ public final class NormalizeTest extends CompilerTestCase {
     testSame("var a = {other: 4}; /** @const */ var other = 5;");
     Node n = getLastCompiler().getRoot();
 
-    Set<Node> constantNodes = findNodesWithProperty(n, IS_CONSTANT_NAME);
+    Set<Node> constantNodes = findNodesWithProperty(n, NormalizeTest::isConstantName);
     assertThat(constantNodes).hasSize(1);
     for (Node hasProp : constantNodes) {
       assertThat(hasProp.getString()).isEqualTo("other");
@@ -1355,12 +1562,23 @@ public final class NormalizeTest extends CompilerTestCase {
     ignoreWarnings(DiagnosticGroups.GLOBALLY_MISSING_PROPERTIES);
 
     test(
-        lines("function f() {", "  var f = 'test';", "  console.log(f);", "}"),
-        lines("function f() {", "  var f$jscomp$1 = 'test';", "  console.log(f$jscomp$1);", "}"));
+        """
+        function f() {
+          var f = 'test';
+          console.log(f);
+        }
+        """,
+        """
+        function f() {
+          var f$jscomp$1 = 'test';
+          console.log(f$jscomp$1);
+        }
+        """);
   }
 
-  private static final Predicate<Node> IS_CONSTANT_NAME =
-      (n) -> n.getBooleanProp(Node.IS_CONSTANT_NAME);
+  private static boolean isConstantName(Node n) {
+    return n.getBooleanProp(Node.IS_CONSTANT_NAME);
+  }
 
   private Set<Node> findNodesWithProperty(Node root, Predicate<Node> prop) {
     final Set<Node> set = new LinkedHashSet<>();
@@ -1388,20 +1606,28 @@ public final class NormalizeTest extends CompilerTestCase {
     // TODO(johnlenz): fix this so it is just another test case.
     CompilerTestCase tester =
         new CompilerTestCase() {
-          @Override
-          protected int getNumRepetitions() {
-            // The normalize pass is only run once.
-            return 1;
+
+          private static PassFactory makePassFactory(
+              String name, Function<AbstractCompiler, CompilerPass> pass) {
+            return PassFactory.builder().setName(name).setInternalFactory(pass).build();
           }
 
           @Override
-          protected CompilerPass getProcessor(Compiler compiler) {
-            return InlineAndCollapseProperties.builder(compiler)
-                .setPropertyCollapseLevel(PropertyCollapseLevel.ALL)
-                .setChunkOutputType(ChunkOutputType.GLOBAL_NAMESPACE)
-                .setHaveModulesBeenRewritten(false)
-                .setModuleResolutionMode(ResolutionMode.BROWSER)
-                .build();
+          protected CompilerPass getProcessor(final Compiler compiler) {
+            PhaseOptimizer optimizer = new PhaseOptimizer(compiler, null);
+            optimizer.addOneTimePass(
+                makePassFactory("es6NormalizeClasses", Es6NormalizeClasses::new));
+            optimizer.addOneTimePass(
+                makePassFactory(
+                    "inlineAndCollapseProperties",
+                    (comp) ->
+                        InlineAndCollapseProperties.builder(compiler)
+                            .setPropertyCollapseLevel(PropertyCollapseLevel.ALL)
+                            .setChunkOutputType(ChunkOutputType.GLOBAL_NAMESPACE)
+                            .setHaveModulesBeenRewritten(false)
+                            .setModuleResolutionMode(ResolutionMode.BROWSER)
+                            .build()));
+            return optimizer;
           }
         };
 
@@ -1452,19 +1678,31 @@ public final class NormalizeTest extends CompilerTestCase {
     disableTypeCheck();
     disableTypeInfoValidation();
     test(
-        lines(
-            "function sortAndConcatParams(params) {", // arrow fn body missing block
-            "  return [...params].map(((k) => `k`));}"),
-        lines(
-            "function sortAndConcatParams(params) {", // gets block {}
-            "  return [...params].map(((k) => { return `k`; }));}"));
+        """
+        function sortAndConcatParams(params) { // arrow fn body missing block
+          return [...params].map(((k) => `k`));}
+        """,
+        """
+        function sortAndConcatParams(params) { // gets block {}
+          return [...params].map(((k) => { return `k`; }));}
+        """);
   }
 
   @Test
   public void testArrowFunctionInFunction() {
     test(
-        lines("function foo() {", "  var x = () => 1;", "  return x();", "}"),
-        lines("function foo() {", "  var x = () => { return 1; };", "  return x();", "}"));
+        """
+        function foo() {
+          var x = () => 1;
+          return x();
+        }
+        """,
+        """
+        function foo() {
+          var x = () => { return 1; };
+          return x();
+        }
+        """);
   }
 
   @Test
@@ -1480,15 +1718,24 @@ public final class NormalizeTest extends CompilerTestCase {
   @Test
   public void testES6ShorthandPropertySyntax03() {
     test(
-        lines("function foo(a, b, c) {", "  return {", "    a,", "    b,", "    c", "  };", "}"),
-        lines(
-            "function foo(a, b, c) {",
-            "  return {",
-            "    a: a,",
-            "    b: b,",
-            "    c: c",
-            "  };",
-            "}"));
+        """
+        function foo(a, b, c) {
+          return {
+            a,
+            b,
+            c
+          };
+        }
+        """,
+        """
+        function foo(a, b, c) {
+          return {
+            a: a,
+            b: b,
+            c: c
+          };
+        }
+        """);
   }
 
   @Test
@@ -1569,7 +1816,13 @@ public final class NormalizeTest extends CompilerTestCase {
   public void testSplitExportDeclarationWithVar() {
     test("export var a;", "var a; export {a as a};");
     test("export var a = 4;", "var a = 4; export {a as a};");
-    test("export var a, b;", lines("var a;", "var b;", "export {a as a, b as b};"));
+    test(
+        "export var a, b;",
+        """
+        var a;
+        var b;
+        export {a as a, b as b};
+        """);
   }
 
   @Test
@@ -1583,14 +1836,16 @@ public final class NormalizeTest extends CompilerTestCase {
 
     test("export var {} = {};", "({} = {}); export {};");
     test(
-        lines(
-            "let obj = {a: 3, b: 2};", //
-            "export var {a, b: d, e: f = 2} = obj;"),
-        lines(
-            "let obj = {a: 3, b: 2};", //
-            "var a; var d; var f; ",
-            "({a: a, b: d, e: f = 2} = obj);",
-            "export {a as a, d as d, f as f};"));
+        """
+        let obj = {a: 3, b: 2};
+        export var {a, b: d, e: f = 2} = obj;
+        """,
+        """
+        let obj = {a: 3, b: 2};
+        var a; var d; var f;
+        ({a: a, b: d, e: f = 2} = obj);
+        export {a as a, d as d, f as f};
+        """);
   }
 
   @Test
@@ -1605,7 +1860,12 @@ public final class NormalizeTest extends CompilerTestCase {
 
   @Test
   public void testSplitExportDeclarationOfFunction() {
-    test("export function bar() {};", lines("function bar() {}", "export {bar as bar};"));
+    test(
+        "export function bar() {};",
+        """
+        function bar() {}
+        export {bar as bar};
+        """);
 
     // Don't need to split declarations in default exports since they are either unnamed, or the
     // name is declared in the module scope only.
@@ -1615,7 +1875,12 @@ public final class NormalizeTest extends CompilerTestCase {
 
   @Test
   public void testSplitExportDeclarationOfClass() {
-    test("export class Foo {};", lines("class Foo {}", "export {Foo as Foo};"));
+    test(
+        "export class Foo {};",
+        """
+        class Foo {}
+        export {Foo as Foo};
+        """);
     testSame("export default class Bar {}");
     testSame("export default class {}");
   }

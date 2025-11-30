@@ -34,7 +34,7 @@ import com.google.javascript.rhino.Token;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
-import org.jspecify.nullness.Nullable;
+import org.jspecify.annotations.Nullable;
 
 /** Just to fold known methods when they are called with constants. */
 class PeepholeReplaceKnownMethods extends AbstractPeepholeOptimization {
@@ -54,7 +54,13 @@ class PeepholeReplaceKnownMethods extends AbstractPeepholeOptimization {
 
   @Override
   Node optimizeSubtree(Node subtree) {
-    if (subtree.isCall()) {
+    if (NodeUtil.isGoogWeakUsageCall(subtree) && late) {
+      // goog.weakUsage(x) -> x.
+      Node name = subtree.getSecondChild().detach();
+      subtree.replaceWith(name);
+      reportChangeToEnclosingScope(name);
+      return name;
+    } else if (subtree.isCall()) {
       return tryFoldKnownMethods(subtree);
     }
     return subtree;
@@ -77,11 +83,16 @@ class PeepholeReplaceKnownMethods extends AbstractPeepholeOptimization {
       if (callTarget.isGetProp()) {
         if (isASTNormalized() && callTarget.getFirstChild().isQualifiedName()) {
           switch (callTarget.getFirstChild().getQualifiedName()) {
-            case "Array":
+            case "Array" -> {
               return tryFoldKnownArrayMethods(subtree, callTarget);
-            case "Math":
+            }
+            case "Math" -> {
               return tryFoldKnownMathMethods(subtree, callTarget);
-            default: // fall out
+            }
+            case "Number" -> {
+              return tryFoldKnownNumberMethods(subtree, callTarget);
+            }
+            default -> {}
           }
         }
         subtree = tryFoldKnownStringMethods(subtree, callTarget);
@@ -112,8 +123,52 @@ class PeepholeReplaceKnownMethods extends AbstractPeepholeOptimization {
     return arraylit;
   }
 
+  private Node tryFoldKnownNumberMethods(Node subtree, Node callTarget) {
+    checkArgument(subtree.isCall() && callTarget.isGetProp());
+    String methodName = callTarget.getString();
+    switch (methodName) {
+      case "parseInt", "parseFloat" -> {
+        Node firstArg = callTarget.getNext();
+        if ((firstArg != null && firstArg.isStringLit()) || isNumericLiteral(firstArg)) {
+          return tryFoldParseNumber(subtree, methodName, firstArg);
+        }
+        return subtree;
+      }
+      default -> {}
+    }
+
+    // If the value is a constant but known not to be a number we could still constant fold many of
+    // the methods below but it doesn't seem worth it.
+    // Get the only number arg as a double as long as it is the only argument
+    Double onlyArg = null;
+    Node valueNode = callTarget.getNext();
+    if (valueNode == null
+        || valueNode.getNext() != null
+        || (onlyArg = getSideEffectFreeNumberValueNoConversion(valueNode)) == null) {
+      return subtree;
+    }
+    Node replacement = null;
+    switch (methodName) {
+      case "isFinite" -> replacement = NodeUtil.booleanNode(Double.isFinite(onlyArg));
+      case "isNaN" -> replacement = NodeUtil.booleanNode(Double.isNaN(onlyArg));
+      case "isSafeInteger" ->
+          replacement =
+              NodeUtil.booleanNode(
+                  onlyArg < Math.pow(2, 53)
+                      && onlyArg >= (-1 * (Math.pow(2, 53) - 1))
+                      && onlyArg.longValue() == onlyArg.doubleValue());
+      default -> {}
+    }
+    if (replacement != null) {
+      subtree.replaceWith(replacement);
+      reportChangeToEnclosingScope(replacement);
+      return replacement;
+    }
+    return subtree;
+  }
+
   /** Tries to evaluate a method on the Math object */
-  private strictfp Node tryFoldKnownMathMethods(Node subtree, Node callTarget) {
+  private Node tryFoldKnownMathMethods(Node subtree, Node callTarget) {
     checkArgument(subtree.isCall() && callTarget.isGetProp());
 
     // first collect the arguments, if they are all numbers then we proceed
@@ -138,16 +193,10 @@ class PeepholeReplaceKnownMethods extends AbstractPeepholeOptimization {
     if (args.size() == 1) {
       double arg = args.get(0);
       switch (methodName) {
-        case "abs":
-          replacement = Math.abs(arg);
-          break;
-        case "ceil":
-          replacement = Math.ceil(arg);
-          break;
-        case "floor":
-          replacement = Math.floor(arg);
-          break;
-        case "fround":
+        case "abs" -> replacement = Math.abs(arg);
+        case "ceil" -> replacement = Math.ceil(arg);
+        case "floor" -> replacement = Math.floor(arg);
+        case "fround" -> {
           if (Double.isNaN(arg) || Double.isInfinite(arg) || arg == 0) {
             replacement = arg;
             // if the double is exactly representable as a float, then just cast since no rounding
@@ -159,28 +208,25 @@ class PeepholeReplaceKnownMethods extends AbstractPeepholeOptimization {
             // (float) arg does not necessarily use the correct rounding mode, so don't do anything
             replacement = null;
           }
-          break;
-        case "round":
+        }
+        case "round" -> {
           if (Double.isNaN(arg) || Double.isInfinite(arg)) {
             replacement = arg;
           } else {
-            replacement = Double.valueOf(Math.round(arg));
+            replacement = (double) Math.round(arg);
           }
-          break;
-        case "sign":
-          replacement = Math.signum(arg);
-          break;
-        case "trunc":
+        }
+        case "sign" -> replacement = Math.signum(arg);
+        case "trunc" -> {
           if (Double.isNaN(arg) || Double.isInfinite(arg)) {
             replacement = arg;
           } else {
             replacement = Math.signum(arg) * Math.floor(Math.abs(arg));
           }
-          break;
-        case "clz32":
-          replacement = (double) Integer.numberOfLeadingZeros(ecmascriptToUint32(arg));
-          break;
-        default: // fall out
+        }
+        case "clz32" ->
+            replacement = (double) Integer.numberOfLeadingZeros(ecmascriptToUint32(arg));
+        default -> {}
       }
     }
     // handle the variadic functions now if we haven't already
@@ -188,36 +234,35 @@ class PeepholeReplaceKnownMethods extends AbstractPeepholeOptimization {
     // NaN or simplify the existing args. e.g. Math.max(3, x, 2) -> Math.max(3, x)
     if (replacement == null) {
       switch (methodName) {
-        case "max":
-          {
-            double result = Double.NEGATIVE_INFINITY;
-            for (Double d : args) {
-              result = max(result, d);
-            }
-            replacement = result;
-            break;
+        case "max" -> {
+          double result = Double.NEGATIVE_INFINITY;
+          for (Double d : args) {
+            result = max(result, d);
           }
-        case "min":
-          {
-            double result = Double.POSITIVE_INFINITY;
-            for (Double d : args) {
-              result = min(result, d);
-            }
-            replacement = result;
-            break;
+          replacement = result;
+        }
+        case "min" -> {
+          double result = Double.POSITIVE_INFINITY;
+          for (Double d : args) {
+            result = min(result, d);
           }
-        case "imul":
-          {
-            if (args.size() < 2) {
-              replacement = 0d;
-            } else {
-              // Ignore args3+
-              replacement =
-                  (double) (ecmascriptToInt32(args.get(0)) * ecmascriptToInt32(args.get(1)));
-            }
-            break;
+          replacement = result;
+        }
+        case "imul" -> {
+          if (args.size() < 2) {
+            replacement = 0d;
+          } else {
+            // Ignore args3+
+            replacement =
+                (double) (ecmascriptToInt32(args.get(0)) * ecmascriptToInt32(args.get(1)));
           }
-        default: // fall out
+        }
+        case "pow" -> {
+          if (args.size() == 2) {
+            replacement = Math.pow(args.get(0), args.get(1));
+          }
+        }
+        default -> {}
       }
     }
 
@@ -229,6 +274,7 @@ class PeepholeReplaceKnownMethods extends AbstractPeepholeOptimization {
     }
     return subtree;
   }
+
 
   /** Try to evaluate known String methods .indexOf(), .substr(), .substring() */
   private Node tryFoldKnownStringMethods(Node subtree, Node callTarget) {
@@ -246,34 +292,42 @@ class PeepholeReplaceKnownMethods extends AbstractPeepholeOptimization {
         return tryFoldStringSplit(subtree, stringNode, firstArg);
       } else if (firstArg == null) {
         switch (functionNameString) {
-          case "toLowerCase":
+          case "toLowerCase" -> {
             return tryFoldStringToLowerCase(subtree, stringNode);
-          case "toUpperCase":
+          }
+          case "toUpperCase" -> {
             return tryFoldStringToUpperCase(subtree, stringNode);
-          case "trim":
+          }
+          case "trim" -> {
             return tryFoldStringTrim(subtree, stringNode);
-          default: // fall out
+          }
+          default -> {}
         }
       } else {
         if (NodeUtil.isImmutableValue(firstArg)) {
           switch (functionNameString) {
-            case "indexOf":
-            case "lastIndexOf":
+            case "indexOf", "lastIndexOf" -> {
               return tryFoldStringIndexOf(subtree, functionNameString, stringNode, firstArg);
-            case "substr":
+            }
+            case "substr" -> {
               return tryFoldStringSubstr(subtree, stringNode, firstArg);
-            case "substring":
-            case "slice":
+            }
+            case "substring", "slice" -> {
               return tryFoldStringSubstringOrSlice(subtree, stringNode, firstArg);
-            case "charAt":
+            }
+            case "charAt" -> {
               return tryFoldStringCharAt(subtree, stringNode, firstArg);
-            case "charCodeAt":
+            }
+            case "charCodeAt" -> {
               return tryFoldStringCharCodeAt(subtree, stringNode, firstArg);
-            case "replace":
+            }
+            case "replace" -> {
               return tryFoldStringReplace(subtree, stringNode, firstArg);
-            case "replaceAll":
+            }
+            case "replaceAll" -> {
               return tryFoldStringReplaceAll(subtree, stringNode, firstArg);
-            default: // fall out
+            }
+            default -> {}
           }
         }
       }
@@ -288,21 +342,20 @@ class PeepholeReplaceKnownMethods extends AbstractPeepholeOptimization {
           Double maybeLengthOrEnd = getSideEffectFreeNumberValue(firstArg.getNext());
           if (maybeLengthOrEnd != null) {
             switch (functionNameString) {
-              case "substr":
+              case "substr" -> {
                 int length = maybeLengthOrEnd.intValue();
                 if (start >= 0 && length == 1) {
                   return replaceWithCharAt(subtree, callTarget, firstArg);
                 }
-                break;
-              case "substring":
-              case "slice":
+              }
+              case "substring", "slice" -> {
                 int end = maybeLengthOrEnd.intValue();
                 // unlike slice and substring, chatAt can not be used with negative indexes
                 if (start >= 0 && end - start == 1) {
                   return replaceWithCharAt(subtree, callTarget, firstArg);
                 }
-                break;
-              default: // fall out
+              }
+              default -> {}
             }
           }
         }
@@ -527,8 +580,11 @@ class PeepholeReplaceKnownMethods extends AbstractPeepholeOptimization {
       } catch (NumberFormatException e) {
         return n;
       }
-
-      newNode = NodeUtil.numberNode(newVal, n);
+      if (newVal == 0 && stringVal.startsWith("-")) {
+        newNode = NodeUtil.numberNode(-0D, n);
+      } else {
+        newNode = NodeUtil.numberNode(newVal, n);
+      }
     } else {
       String normalizedNewVal = "0";
       try {
@@ -667,12 +723,13 @@ class PeepholeReplaceKnownMethods extends AbstractPeepholeOptimization {
 
     int originalSize = InlineCostEstimator.getCost(n);
     switch (arrayFoldedChildren.size()) {
-      case 0:
+      case 0 -> {
         Node emptyStringNode = IR.string("");
         n.replaceWith(emptyStringNode);
         reportChangeToEnclosingScope(emptyStringNode);
         return emptyStringNode;
-      case 1:
+      }
+      case 1 -> {
         Node foldedStringNode = arrayFoldedChildren.remove(0);
         // The spread isn't valid outside any array literal (or would change meaning)
         // so don't try to fold it.
@@ -690,7 +747,8 @@ class PeepholeReplaceKnownMethods extends AbstractPeepholeOptimization {
           // e.g. String(someNonStringValue) would turn `null` into `"null"`, which isn't right.
           return n;
         }
-      default:
+      }
+      default -> {
         if (arrayNode.hasXChildren(arrayFoldedChildren.size())) {
           // No folding could actually be performed.
           return n;
@@ -706,7 +764,7 @@ class PeepholeReplaceKnownMethods extends AbstractPeepholeOptimization {
           arrayNode.addChildToBack(node);
         }
         reportChangeToEnclosingScope(arrayNode);
-        break;
+      }
     }
 
     return n;

@@ -28,7 +28,7 @@ import com.google.javascript.rhino.StaticSourceFile.SourceKind;
 import java.util.ArrayList;
 import java.util.LinkedHashSet;
 import java.util.Set;
-import org.jspecify.nullness.Nullable;
+import org.jspecify.annotations.Nullable;
 
 /**
  * Checks that all variables are declared, that file-private variables are accessed only in the file
@@ -162,7 +162,14 @@ class VarCheck implements ScopedCallback, CompilerPass {
 
   @Override
   public boolean shouldTraverse(NodeTraversal t, Node n, Node parent) {
-    return true;
+    // VarCheck is one of the few passes that runs after unwrapping closure-unaware code during
+    // finalization, and unfortunately that kind of code can contain all sorts of references.
+    // We could adjust the pass order so that unwrapping happens after this pass, but that would
+    // move VarCheck before AST Validity checking. Instead, we will just teach VarCheck to skip
+    // closure-unaware code.
+    // TODO: b/321233583 - once NodeTraversal supports skipping closure unaware code as a feature,
+    // replace this check with that.
+    return !n.isClosureUnawareCode();
   }
 
   @Override
@@ -318,14 +325,15 @@ class VarCheck implements ScopedCallback, CompilerPass {
    */
   static final ImmutableSet<String> REQUIRED_SYMBOLS =
       ImmutableSet.of(
+          // go/keep-sorted start
           "AggregateError",
           "Array",
           "Error",
           "Float32Array",
           "Function",
           "Infinity",
-          "JSCompiler_renameProperty",
           "JSCOMPILER_PRESERVE", // added by CheckSideEffects
+          "JSCompiler_renameProperty",
           "Map",
           "Math",
           "NaN",
@@ -333,10 +341,12 @@ class VarCheck implements ScopedCallback, CompilerPass {
           "Object",
           "Promise",
           "RangeError",
+          "ReferenceError",
           "Reflect",
           "RegExp",
           "Set",
           "String",
+          "SuppressedError",
           "Symbol",
           "TypeError",
           "WeakMap",
@@ -347,7 +357,9 @@ class VarCheck implements ScopedCallback, CompilerPass {
           "parseInt",
           "self",
           "undefined",
-          "window");
+          "window"
+          // go/keep-sorted end
+          );
 
   /**
    * Create a new variable in a synthetic script. This will prevent subsequent compiler passes from
@@ -389,24 +401,25 @@ class VarCheck implements ScopedCallback, CompilerPass {
     public void visit(NodeTraversal t, Node n, Node parent) {
       if (n.isName()) {
         switch (parent.getToken()) {
-          case VAR:
-          case LET:
-          case CONST:
-          case FUNCTION:
-          case CLASS:
-          case PARAM_LIST:
-          case DEFAULT_VALUE:
-          case ITER_REST:
-          case OBJECT_REST:
-          case ARRAY_PATTERN:
+          case VAR,
+              LET,
+              CONST,
+              FUNCTION,
+              CLASS,
+              PARAM_LIST,
+              DEFAULT_VALUE,
+              ITER_REST,
+              OBJECT_REST,
+              ARRAY_PATTERN -> {
             // These are okay.
             return;
-          case STRING_KEY:
+          }
+          case STRING_KEY -> {
             if (parent.getParent().isObjectPattern()) {
               return;
             }
-            break;
-          case GETPROP:
+          }
+          case GETPROP -> {
             if (n == parent.getFirstChild()) {
               Scope scope = t.getScope();
               Var var = scope.getVar(n.getString());
@@ -422,7 +435,8 @@ class VarCheck implements ScopedCallback, CompilerPass {
               undefinedNamesFromExterns.add(n.getString());
             }
             return;
-          case ASSIGN:
+          }
+          case ASSIGN -> {
             // Don't warn for the "window.foo = foo;" nodes added by
             // DeclaredGlobalExternsOnWindow, nor for alias declarations
             // of the form "/** @const */ ns.Foo = Bar;"
@@ -431,22 +445,21 @@ class VarCheck implements ScopedCallback, CompilerPass {
                 && parent.getFirstChild().isQualifiedName()) {
               return;
             }
-            break;
-          case NAME:
+          }
+          case NAME -> {
             // Don't warn for simple var assignments "/** @const */ var foo = bar;"
             // They are used to infer the types of namespace aliases.
             if (NodeUtil.isNameDeclaration(parent.getParent())) {
               return;
             }
-            break;
-          case OR:
+          }
+          case OR -> {
             // Don't warn for namespace declarations: "/** @const */ var ns = ns || {};"
             if (NodeUtil.isNamespaceDecl(parent.getParent())) {
               return;
             }
-            break;
-          default:
-            break;
+          }
+          default -> {}
         }
         t.report(n, NAME_REFERENCE_IN_EXTERNS_ERROR, n.getString());
         Scope scope = t.getScope();
@@ -492,39 +505,32 @@ class VarCheck implements ScopedCallback, CompilerPass {
       boolean allowDupe = hasDuplicateDeclarationSuppression(compiler, n, origVar.getNameNode());
 
       switch (parent.getToken()) {
-        case CLASS:
-        case CONST:
-        case LET:
+        case CLASS, CONST, LET -> {
           if (!allowDupe) {
             reportBlockScopedMultipleDeclaration(n, name, origNode);
-          }
+	  }
           return;
-
-        default:
-          break;
+        }
+        default -> {}
       }
 
       if (origParent != null) {
         switch (origParent.getToken()) {
-          case CLASS:
-          case CONST:
-          case LET:
+          case CLASS, CONST, LET -> {
             if (!allowDupe) {
               reportBlockScopedMultipleDeclaration(n, name, origNode);
-            }
+	    }
             return;
-
-          case FUNCTION:
+          }
+          case FUNCTION -> {
             // Redeclarations of functions in global scope are fairly common, so allow them
             // (at least for now).
             if (!s.isGlobal() && parent.isFunction()) {
               reportBlockScopedMultipleDeclaration(n, name, origNode);
               return;
             }
-            break;
-
-          default:
-            break;
+          }
+          default -> {}
         }
       }
 

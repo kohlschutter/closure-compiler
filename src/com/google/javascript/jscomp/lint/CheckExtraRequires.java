@@ -32,7 +32,7 @@ import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.Map;
 import java.util.Set;
-import org.jspecify.nullness.Nullable;
+import org.jspecify.annotations.Nullable;
 
 /**
  * Walks the AST looking for usages of qualified names, and 'goog.require's of those names. Then,
@@ -110,29 +110,24 @@ public class CheckExtraRequires extends NodeTraversal.AbstractPostOrderCallback
   public void visit(NodeTraversal t, Node n, Node parent) {
     maybeAddJsDocUsages(n);
     switch (n.getToken()) {
-      case NAME:
+      case NAME -> {
         if (!NodeUtil.isLValue(n) && !parent.isGetProp() && !parent.isImportSpec()) {
           visitQualifiedName(n);
         }
-        break;
-      case GETPROP:
+      }
+      case GETPROP -> {
         // If parent is a GETPROP, they will handle all the usages.
         if (!parent.isGetProp() && n.isQualifiedName()) {
           visitQualifiedName(n);
         }
-        break;
-      case CALL:
-        visitCallNode(n, parent);
-        break;
-      case SCRIPT:
+      }
+      case CALL -> visitCallNode(n, parent);
+      case SCRIPT -> {
         visitScriptNode();
         reset();
-        break;
-      case IMPORT:
-        visitImportNode(n);
-        break;
-      default:
-        break;
+      }
+      case IMPORT -> visitImportNode(n);
+      default -> {}
     }
   }
 

@@ -24,13 +24,14 @@ import com.google.common.base.Suppliers;
 import com.google.common.collect.ImmutableSet;
 import com.google.javascript.jscomp.colors.Color;
 import com.google.javascript.jscomp.colors.StandardColors;
+import com.google.javascript.jscomp.js.RuntimeJsLibManager.JsLibField;
 import com.google.javascript.jscomp.parsing.parser.FeatureSet;
 import com.google.javascript.jscomp.parsing.parser.FeatureSet.Feature;
 import com.google.javascript.rhino.IR;
 import com.google.javascript.rhino.Node;
-import com.google.javascript.rhino.QualifiedName;
 import com.google.javascript.rhino.StaticScope;
 import com.google.javascript.rhino.Token;
+import com.google.javascript.rhino.jstype.JSTypeNative;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -38,7 +39,7 @@ import java.util.HashSet;
 import java.util.Iterator;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
-import org.jspecify.nullness.Nullable;
+import org.jspecify.annotations.Nullable;
 
 /**
  * Converts ES6 generator functions to valid ES3 code. This pass runs after all ES6 features except
@@ -78,8 +79,10 @@ final class Es6RewriteGenerators implements CompilerPass {
   private static final String GENERATOR_THIS = "$jscomp$generator$this";
   private static final String GENERATOR_FORIN_PREFIX = "$jscomp$generator$forin";
 
-  private static final QualifiedName JSCOMP_ASYNC_EXECUTE =
-      QualifiedName.of("$jscomp.asyncExecutePromiseGeneratorFunction");
+  private final JsLibField jscompAsyncExecuteFunction;
+  private final JsLibField jscompAsyncExecuteProgram;
+  private final JsLibField generatorContext;
+  private final JsLibField jscompCreateGenerator;
 
   private static final FeatureSet transpiledFeatures =
       FeatureSet.BARE_MINIMUM.with(Feature.GENERATORS);
@@ -90,7 +93,7 @@ final class Es6RewriteGenerators implements CompilerPass {
 
   private final @Nullable Color nullableStringType;
   private final Supplier<AstFactory.Type> generatorContextType;
-  private final Supplier<AstFactory.Type> propertyIteratorType;
+  private final AstFactory.Type propertyIteratorType;
   private final UniqueIdSupplier uniqueIdSupplier;
 
   Es6RewriteGenerators(AbstractCompiler compiler) {
@@ -106,19 +109,23 @@ final class Es6RewriteGenerators implements CompilerPass {
     } else {
       nullableStringType = null;
     }
+
+    var runtimeJsLibManager = compiler.getRuntimeJsLibManager();
+    this.generatorContext = runtimeJsLibManager.getJsLibField("$jscomp.generator.Context");
+    this.jscompAsyncExecuteFunction =
+        runtimeJsLibManager.getJsLibField("$jscomp.asyncExecutePromiseGeneratorFunction");
+    this.jscompAsyncExecuteProgram =
+        runtimeJsLibManager.getJsLibField("$jscomp.asyncExecutePromiseGeneratorProgram");
+    this.jscompCreateGenerator =
+        runtimeJsLibManager.getJsLibField("$jscomp.generator.createGenerator");
+
     generatorContextType =
         Suppliers.memoize(
             () ->
                 type(
                     astFactory.createNewNode(
-                        astFactory.createQName(this.namespace, "$jscomp.generator.Context"))));
-    propertyIteratorType =
-        Suppliers.memoize(
-            () ->
-                type(
-                    astFactory.createNewNode(
-                        astFactory.createQName(
-                            this.namespace, "$jscomp.generator.Context.PropertyIterator"))));
+                        astFactory.createQName(this.namespace, generatorContext))));
+    propertyIteratorType = AstFactory.type(JSTypeNative.FUNCTION_TYPE, StandardColors.TOP_OBJECT);
     uniqueIdSupplier = compiler.getUniqueIdSupplier();
   }
 
@@ -292,7 +299,7 @@ final class Es6RewriteGenerators implements CompilerPass {
         Node callTarget = generatorFunction.getParent().getFirstChild();
         if (generatorFunction.getPrevious() == callTarget
             && generatorFunction.getNext() == null
-            && JSCOMP_ASYNC_EXECUTE.matches(callTarget)) {
+            && jscompAsyncExecuteFunction.matches(callTarget)) {
           checkState(generatorFunction.getGrandparent().isReturn());
           checkState(generatorFunction.getGrandparent().getNext() == null);
           return true;
@@ -330,7 +337,8 @@ final class Es6RewriteGenerators implements CompilerPass {
         checkState(changeScopeNode.isFunction(), changeScopeNode);
 
         // asyncExecutePromiseGeneratorFunction   =>   asyncExecutePromiseGeneratorProgram
-        callTarget.setString("asyncExecutePromiseGeneratorProgram");
+        callTarget.replaceWith(
+            astFactory.createQName(namespace, jscompAsyncExecuteProgram).srcrefTree(callTarget));
 
         program = originalGeneratorBody.getParent();
         // function *() {...}   =>   function *(context) {}
@@ -365,8 +373,7 @@ final class Es6RewriteGenerators implements CompilerPass {
                 type(programType));
 
         // $jscomp.generator.createGenerator
-        Node createGenerator =
-            astFactory.createQName(namespace, "$jscomp.generator.createGenerator");
+        Node createGenerator = astFactory.createQName(namespace, jscompCreateGenerator);
         // Replace original generator function body with:
         // return $jscomp.generator.createGenerator(<origGenerator>, <program function>);
         newGeneratorHoistBlock =
@@ -434,58 +441,22 @@ final class Es6RewriteGenerators implements CompilerPass {
         return;
       }
       switch (statement.getToken()) {
-        case LABEL:
-          transpileLabel(statement);
-          break;
-
-        case BLOCK:
-          transpileBlock(statement);
-          break;
-
-        case EXPR_RESULT:
-          transpileExpressionResult(statement);
-          break;
-
-        case VAR:
-          transpileVar(statement);
-          break;
-
-        case RETURN:
-          transpileReturn(statement);
-          break;
-
-        case THROW:
-          transpileThrow(statement);
-          break;
-
-        case IF:
-          transpileIf(statement, breakCase);
-          break;
-
-        case FOR:
-          transpileFor(statement, breakCase, continueCase);
-          break;
-
-        case FOR_IN:
-          transpileForIn(statement, breakCase, continueCase);
-          break;
-
-        case DO:
-          transpileDo(statement, breakCase, continueCase);
-          break;
-
-        case TRY:
-          transpileTry(statement, breakCase);
-          break;
-
-        case SWITCH:
-          transpileSwitch(statement, breakCase);
-          break;
-
-        default:
-          // NOTE: There is no WHILE case, becasue this pass runs after normalization,
-          // which converts all while loops to for loops.
-          throw new IllegalStateException("Unsupported token: " + statement.getToken());
+        case LABEL -> transpileLabel(statement);
+        case BLOCK -> transpileBlock(statement);
+        case EXPR_RESULT -> transpileExpressionResult(statement);
+        case VAR -> transpileVar(statement);
+        case RETURN -> transpileReturn(statement);
+        case THROW -> transpileThrow(statement);
+        case IF -> transpileIf(statement, breakCase);
+        case FOR -> transpileFor(statement, breakCase, continueCase);
+        case FOR_IN -> transpileForIn(statement, breakCase, continueCase);
+        case DO -> transpileDo(statement, breakCase, continueCase);
+        case TRY -> transpileTry(statement, breakCase);
+        case SWITCH -> transpileSwitch(statement, breakCase);
+        default ->
+            // NOTE: There is no WHILE case, becasue this pass runs after normalization,
+            // which converts all while loops to for loops.
+            throw new IllegalStateException("Unsupported token: " + statement.getToken());
       }
     }
 
@@ -852,8 +823,7 @@ final class Es6RewriteGenerators implements CompilerPass {
       }
 
       // "$for$in"
-      Node child =
-          context.callContextMethod(target, "forIn", propertyIteratorType.get(), detachedExpr);
+      Node child = context.callContextMethod(target, "forIn", propertyIteratorType, detachedExpr);
       Node forIn =
           astFactory
               .createName(
@@ -969,7 +939,8 @@ final class Es6RewriteGenerators implements CompilerPass {
 
       // Are all "switch" cases unmarked?
       boolean hasGeneratorMarker = false;
-      for (Node caseSection = n.getSecondChild();
+      Node switchBody = n.getSecondChild();
+      for (Node caseSection = switchBody.getFirstChild();
           caseSection != null;
           caseSection = caseSection.getNext()) {
         if (caseSection.isGeneratorMarker()) {
@@ -1000,7 +971,7 @@ final class Es6RewriteGenerators implements CompilerPass {
 
       // We don't have to transpile unmarked cases at the beginning of "switch".
       boolean canSkipUnmarkedCases = true;
-      for (Node caseSection = n.getSecondChild();
+      for (Node caseSection = switchBody.getFirstChild();
           caseSection != null;
           caseSection = caseSection.getNext()) {
         if (!caseSection.isDefaultCase() && caseSection.getFirstChild().isGeneratorMarker()) {
@@ -1046,6 +1017,7 @@ final class Es6RewriteGenerators implements CompilerPass {
 
       // Transpile the barebone of original "switch" statement
       n.setGeneratorMarker(false);
+      switchBody.setGeneratorMarker(false);
       transpileUnmarkedNode(n);
       context.writeJumpTo(endCase, n); // TODO(skill): do not always add this.
 
@@ -1069,7 +1041,7 @@ final class Es6RewriteGenerators implements CompilerPass {
     }
 
     /** Finds the only YIELD node in a tree. */
-    private class YieldFinder extends NodeTraversal.AbstractPreOrderCallback {
+    private static class YieldFinder extends NodeTraversal.AbstractPreOrderCallback {
 
       private Node yieldNode;
 
@@ -1102,19 +1074,11 @@ final class Es6RewriteGenerators implements CompilerPass {
       if (!block.hasChildren()) {
         return false;
       }
-      switch (block.getLastChild().getToken()) {
-        case BLOCK:
-          return isEndOfBlockUnreachable(block.getLastChild());
-
-        case RETURN:
-        case THROW:
-        case CONTINUE:
-        case BREAK:
-          return true;
-
-        default:
-          return false;
-      }
+      return switch (block.getLastChild().getToken()) {
+        case BLOCK -> isEndOfBlockUnreachable(block.getLastChild());
+        case RETURN, THROW, CONTINUE, BREAK -> true;
+        default -> false;
+      };
     }
 
     /** State machine context that is used during generator function transpilation. */
@@ -1145,8 +1109,12 @@ final class Es6RewriteGenerators implements CompilerPass {
        */
       Case currentCase;
 
+      // A counter for the number of finally blocks we are currently inside.
+      // This value is used for two purposes:
+      // 1. At COMPILE-TIME, to determine if a break/continue is inside a finally block.
+      // 2. At RUNTIME, its value is emitted into the generated code to manage the
+      //    exception-handling stack.
       int nestedFinallyBlockCount = 0;
-
       boolean thisReferenceFound;
       boolean argumentsReferenceFound;
 
@@ -1359,10 +1327,11 @@ final class Es6RewriteGenerators implements CompilerPass {
         Node switchNode =
             IR.switchNode(getContextField(generatorBody, "nextAddress")).srcref(generatorBody);
         generatorBody.addChildToBack(switchNode);
+        Node switchBody = switchNode.getSecondChild().srcref(generatorBody);
 
         // Populate "switch" statement with "case"s.
         for (Case currentCase : allCases) {
-          switchNode.addChildToBack(currentCase.createCaseNode());
+          switchBody.addChildToBack(currentCase.createCaseNode());
         }
         allCases.clear();
       }
@@ -1519,7 +1488,11 @@ final class Es6RewriteGenerators implements CompilerPass {
       /** Converts "break" and "continue" statements into state machine jumps. */
       void replaceBreakContinueWithJump(Node sourceNode, Case section, int breakSuppressors) {
         final String jumpMethod;
-        if (finallyCases.isEmpty() || finallyCases.getFirst().id < section.id) {
+        if (nestedFinallyBlockCount > 0) {
+          // If we are in a finally block, we need to use jumpThroughFinallyBlocks to ensure that
+          // the finally block is correctly exited.
+          jumpMethod = "jumpThroughFinallyBlocks";
+        } else if (finallyCases.isEmpty() || finallyCases.getFirst().id < section.id) {
           // There are no finally blocks that should be exectuted pior to jumping
           jumpMethod = "jumpTo";
         } else {
@@ -1535,7 +1508,14 @@ final class Es6RewriteGenerators implements CompilerPass {
                   type(StandardColors.NULL_OR_VOID),
                   section.getNumber(sourceNode))
               .insertBefore(sourceNode);
-          sourceNode.replaceWith(createBreakNodeFor(sourceNode));
+          if (nestedFinallyBlockCount == 0) {
+            sourceNode.replaceWith(createBreakNodeFor(sourceNode));
+          } else {
+            // If we are in a finally block, we need to detach the source node to prevent an extra
+            // break from being generated. The break is not needed because the
+            // jumpThroughFinallyBlocks call will handle the control flow.
+            sourceNode.detach();
+          }
         } else {
           // "break;" inside a loop or swtich statement:
           // for (...) {
@@ -2205,7 +2185,7 @@ final class Es6RewriteGenerators implements CompilerPass {
       }
 
       /** Reprasents a catch case that is used by try/catch transpilation */
-      class CatchCase {
+      static class CatchCase {
         final Case catchCase;
 
         /**
@@ -2220,7 +2200,7 @@ final class Es6RewriteGenerators implements CompilerPass {
       }
 
       /** Stores "break" and "continue" case sections assosiated with a label. */
-      class LabelCases {
+      static class LabelCases {
 
         final Case breakCase;
 

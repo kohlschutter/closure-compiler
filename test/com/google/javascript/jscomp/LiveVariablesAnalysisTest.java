@@ -27,7 +27,7 @@ import com.google.javascript.jscomp.NodeUtil.AllVarsDeclaredInFunction;
 import com.google.javascript.rhino.InputId;
 import com.google.javascript.rhino.Node;
 import com.google.javascript.rhino.Token;
-import org.jspecify.nullness.Nullable;
+import org.jspecify.annotations.Nullable;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.junit.runners.JUnit4;
@@ -374,7 +374,12 @@ public final class LiveVariablesAnalysisTest {
     assertLiveAfterX("var a; try {a()} catch(e) {X:a=1} finally {a}", "a");
     // Because the outer catch doesn't catch any exceptions at all, the read of
     // "a" within the catch block should not make "a" live.
-    assertNotLiveAfterX("var a = 1; try {" + "try {a()} catch(e) {X:1} } catch(E) {a}", "a");
+    assertNotLiveAfterX(
+        """
+        var a = 1; try {
+        try {a()} catch(e) {X:1} } catch(E) {a}
+        """,
+        "a");
     assertLiveAfterX("var a; while(1) { try {X:a=1;break} finally {a}}", "a");
   }
 
@@ -537,8 +542,8 @@ public final class LiveVariablesAnalysisTest {
 
   private void assertLiveBeforeX(String src, String var, boolean async) {
     LinearFlowState<LiveVariablesAnalysis.LiveVariableLattice> state = getFlowStateAtX(src, async);
-    assertWithMessage(src + " should contain a label 'X:'").that(state).isNotNull();
-    assertWithMessage("Variable " + var + " should be live before X")
+    assertWithMessage("%s should contain a label 'X:'", src).that(state).isNotNull();
+    assertWithMessage("Variable %s should be live before X", var)
         .that(state.getIn().isLive(liveness.getVarIndex(var)))
         .isTrue();
   }
@@ -550,7 +555,7 @@ public final class LiveVariablesAnalysisTest {
   private void assertLiveAfterX(String src, String var, boolean async) {
     LinearFlowState<LiveVariablesAnalysis.LiveVariableLattice> state = getFlowStateAtX(src, async);
     assertWithMessage("Label X should be in the input program.").that(state).isNotNull();
-    assertWithMessage("Variable " + var + " should be live after X")
+    assertWithMessage("Variable %s should be live after X", var)
         .that(state.getOut().isLive(liveness.getVarIndex(var)))
         .isTrue();
   }
@@ -558,7 +563,7 @@ public final class LiveVariablesAnalysisTest {
   private void assertNotLiveAfterX(String src, String var) {
     LinearFlowState<LiveVariablesAnalysis.LiveVariableLattice> state = getFlowStateAtX(src, false);
     assertWithMessage("Label X should be in the input program.").that(state).isNotNull();
-    assertWithMessage("Variable " + var + " should not be live after X")
+    assertWithMessage("Variable %s should not be live after X", var)
         .that(state.getOut().isLive(liveness.getVarIndex(var)))
         .isFalse();
   }
@@ -566,7 +571,7 @@ public final class LiveVariablesAnalysisTest {
   private void assertNotLiveBeforeX(String src, String var) {
     LinearFlowState<LiveVariablesAnalysis.LiveVariableLattice> state = getFlowStateAtX(src, false);
     assertWithMessage("Label X should be in the input program.").that(state).isNotNull();
-    assertWithMessage("Variable " + var + " should not be live before X")
+    assertWithMessage("Variable %s should not be live before X", var)
         .that(state.getIn().isLive(liveness.getVarIndex(var)))
         .isFalse();
   }
@@ -574,8 +579,8 @@ public final class LiveVariablesAnalysisTest {
   private void assertLiveAfterDecl(String src, String var) {
     LinearFlowState<LiveVariablesAnalysis.LiveVariableLattice> state =
         getFlowStateAtDeclaration(src, var);
-    assertWithMessage("Variable " + var + " should be declared").that(state).isNotNull();
-    assertWithMessage("Variable" + var + " should be live after its declaration")
+    assertWithMessage("Variable %s should be declared", var).that(state).isNotNull();
+    assertWithMessage("Variable%s should be live after its declaration", var)
         .that(state.getOut().isLive(liveness.getVarIndex(var)))
         .isTrue();
   }
@@ -583,8 +588,8 @@ public final class LiveVariablesAnalysisTest {
   private void assertNotLiveAfterDecl(String src, String var) {
     LinearFlowState<LiveVariablesAnalysis.LiveVariableLattice> state =
         getFlowStateAtDeclaration(src, var);
-    assertWithMessage("Variable " + var + " should be declared").that(state).isNotNull();
-    assertWithMessage("Variable " + var + " should not be live after its declaration")
+    assertWithMessage("Variable %s should be declared", var).that(state).isNotNull();
+    assertWithMessage("Variable %s should not be live after its declaration", var)
         .that(state.getOut().isLive(liveness.getVarIndex(var)))
         .isFalse();
   }
@@ -592,8 +597,8 @@ public final class LiveVariablesAnalysisTest {
   private void assertNotLiveBeforeDecl(String src, String var) {
     LinearFlowState<LiveVariablesAnalysis.LiveVariableLattice> state =
         getFlowStateAtDeclaration(src, var);
-    assertWithMessage("Variable " + var + " should be declared").that(state).isNotNull();
-    assertWithMessage("Variable " + var + " should not be live before its declaration")
+    assertWithMessage("Variable %s should be declared", var).that(state).isNotNull();
+    assertWithMessage("Variable %s should not be live before its declaration", var)
         .that(state.getIn().isLive(liveness.getVarIndex(var)))
         .isFalse();
   }
@@ -659,7 +664,7 @@ public final class LiveVariablesAnalysisTest {
         return;
       }
     }
-    assertWithMessage("Variable " + name + " should be in the escaped local list.").fail();
+    assertWithMessage("Variable %s should be in the escaped local list.", name).fail();
   }
 
   private static void assertNotEscaped(String src, String name) {
@@ -692,14 +697,10 @@ public final class LiveVariablesAnalysisTest {
 
     // Set up test case
     switch (wrapper) {
-      case FUNCTION:
-        src = "function _FUNCTION(param1, param2 = 1, ...param3){" + src + "}";
-        break;
-      case ASYNC_FUNCTION:
-        src = "async function _FUNCTION(param1, param2 = 1, ...param3){" + src + "}";
-        break;
-      default:
-        break;
+      case FUNCTION -> src = "function _FUNCTION(param1, param2 = 1, ...param3){" + src + "}";
+      case ASYNC_FUNCTION ->
+          src = "async function _FUNCTION(param1, param2 = 1, ...param3){" + src + "}";
+      default -> {}
     }
     Node n = compiler.parseTestCode(src).removeFirstChild();
     checkState(n.isFunction(), n);

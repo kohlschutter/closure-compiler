@@ -20,7 +20,6 @@ import static com.google.common.base.Preconditions.checkNotNull;
 import static com.google.common.base.Preconditions.checkState;
 import static com.google.javascript.jscomp.NodeUtil.isBundledGoogModuleCall;
 
-import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import com.google.javascript.jscomp.PolymerBehaviorExtractor.BehaviorDefinition;
@@ -32,12 +31,11 @@ import com.google.javascript.rhino.JSDocInfo.Visibility;
 import com.google.javascript.rhino.JSTypeExpression;
 import com.google.javascript.rhino.Node;
 import com.google.javascript.rhino.Token;
-import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
-import org.jspecify.nullness.Nullable;
+import org.jspecify.annotations.Nullable;
 
 /**
  * Rewrites a given call to Polymer({}) to a set of declarations and assignments which can be
@@ -46,8 +44,7 @@ import org.jspecify.nullness.Nullable;
 final class PolymerClassRewriter {
   private static final String VIRTUAL_FILE = "<PolymerClassRewriter.java>";
   private final AbstractCompiler compiler;
-  private final boolean propertyRenamingEnabled;
-  @VisibleForTesting static final String POLYMER_ELEMENT_PROP_CONFIG = "PolymerElementProperties";
+  private static final String POLYMER_ELEMENT_PROP_CONFIG = "PolymerElementProperties";
 
   static final DiagnosticType IMPLICIT_GLOBAL_CONFLICT =
       DiagnosticType.error(
@@ -66,10 +63,9 @@ final class PolymerClassRewriter {
   private final Node externsInsertionRef;
   boolean propertySinkExternInjected = false;
 
-  PolymerClassRewriter(AbstractCompiler compiler, boolean propertyRenamingEnabled) {
+  PolymerClassRewriter(AbstractCompiler compiler) {
     this.compiler = compiler;
     this.externsInsertionRef = compiler.getSynthesizedExternsInput().getAstRoot(compiler);
-    this.propertyRenamingEnabled = propertyRenamingEnabled;
   }
 
   static boolean isIIFE(Node n) {
@@ -95,20 +91,20 @@ final class PolymerClassRewriter {
   private void insertGeneratedDeclarationCodeToGlobalScope(
       Node enclosingNode, Node declarationCode) {
     switch (enclosingNode.getToken()) {
-      case MODULE_BODY:
+      case MODULE_BODY -> {
         {
           Node insertionPoint = getNodeForInsertion(enclosingNode.getParent());
           insertionPoint.addChildToFront(declarationCode);
           compiler.reportChangeToChangeScope(NodeUtil.getEnclosingScript(insertionPoint));
         }
-        break;
-      case SCRIPT:
+      }
+      case SCRIPT -> {
         {
           enclosingNode.addChildToFront(declarationCode);
           compiler.reportChangeToChangeScope(NodeUtil.getEnclosingScript(enclosingNode));
         }
-        break;
-      case CALL:
+      }
+      case CALL -> {
         {
           // This case represents only the Polymer calls which are enclosed inside an IIFE
           checkState(isIIFE(enclosingNode));
@@ -125,8 +121,8 @@ final class PolymerClassRewriter {
             compiler.reportChangeToChangeScope(NodeUtil.getEnclosingScript(insertionPoint));
           }
         }
-        break;
-      case FUNCTION:
+      }
+      case FUNCTION -> {
         {
           // This case represents only the Polymer calls that are inside a function which is an arg
           // to goog.loadModule
@@ -136,9 +132,8 @@ final class PolymerClassRewriter {
           insertionPoint.addChildToFront(declarationCode);
           compiler.reportChangeToChangeScope(insertionPoint);
         }
-        break;
-      default:
-        throw new RuntimeException("Enclosing node for Polymer is incorrect");
+      }
+      default -> throw new RuntimeException("Enclosing node for Polymer is incorrect");
     }
   }
 
@@ -150,7 +145,7 @@ final class PolymerClassRewriter {
    */
   private Node getNodeForInsertion(Node enclosingScript) {
     if (NodeUtil.isFromTypeSummary(enclosingScript)) {
-      return externsInsertionRef;
+      return compiler.getSynthesizedTypeSummaryInput().getAstRoot(compiler);
     } else {
       return compiler.getNodeForCodeInsertion(null);
     }
@@ -165,7 +160,7 @@ final class PolymerClassRewriter {
    */
   private void insertGeneratedPropsAndBehaviorCode(Node enclosingNode, Node statements) {
     switch (enclosingNode.getToken()) {
-      case MODULE_BODY:
+      case MODULE_BODY -> {
         {
           if (enclosingNode.getParent().getBooleanProp(Node.GOOG_MODULE)) {
             // The goog.module('ns'); call must remain the first statement in the module.
@@ -175,12 +170,15 @@ final class PolymerClassRewriter {
             enclosingNode.addChildrenToFront(statements);
           }
         }
-        break;
-      case SCRIPT:
-        enclosingNode.addChildrenToFront(statements);
+      }
+      case SCRIPT -> {
+        // If children are added to front, it will cause runtime error in the code because Polymer's
+        // properties will be accessed before the Polymer object is defined. The Polymer object gets
+        // defined in `insertGeneratedDeclarationCodeToGlobalScope`.
+        enclosingNode.addChildrenToBack(statements);
         compiler.reportChangeToChangeScope(NodeUtil.getEnclosingScript(enclosingNode));
-        break;
-      case CALL:
+      }
+      case CALL -> {
         {
           // This case represents only the Polymer calls which are enclosed inside an IIFE
           checkState(isIIFE(enclosingNode));
@@ -188,8 +186,8 @@ final class PolymerClassRewriter {
           Node functionBlock = functionNode.getLastChild();
           functionBlock.addChildrenToFront(statements);
         }
-        break;
-      case FUNCTION:
+      }
+      case FUNCTION -> {
         // This case represents only the Polymer calls that are inside a function which is an arg
         // to goog.loadModule
         checkState(isFunctionArgInGoogLoadModule(enclosingNode));
@@ -201,9 +199,8 @@ final class PolymerClassRewriter {
         if (insertionPoint != null) {
           functionBlock.addChildrenAfter(statements, insertionPoint);
         }
-        break;
-      default:
-        break;
+      }
+      default -> {}
     }
   }
 
@@ -344,7 +341,7 @@ final class PolymerClassRewriter {
     // If property renaming is enabled, wrap the properties object literal
     // in a reflection call so that the properties are renamed consistently
     // with the class members.
-    if (propertyRenamingEnabled && cls.descriptor != null) {
+    if (cls.descriptor != null) {
       Node props = NodeUtil.getFirstPropMatchingKey(cls.descriptor, "properties");
       if (props != null && props.isObjectLit()) {
         addPropertiesConfigObjectReflection(cls, props);
@@ -431,7 +428,7 @@ final class PolymerClassRewriter {
     //
     // Also add reflection and sinks for computed properties and complex observers
     // and switch simple observers to direct function references.
-    if (propertyRenamingEnabled && cls.descriptor != null) {
+    if (cls.descriptor != null) {
       convertSimpleObserverStringsToReferences(cls);
       addPropertiesConfigObjectReflection(cls, cls.descriptor);
     }
@@ -474,6 +471,7 @@ final class PolymerClassRewriter {
             .srcrefTreeIfMissing(propertiesLiteral);
     parent.addChildToFront(objReflectCall);
     compiler.reportChangeToEnclosingScope(parent);
+    compiler.getRuntimeJsLibManager().ensureLibraryInjected("util/reflectobject", false);
   }
 
   /** Adds an @this annotation to all functions in the objLit. */
@@ -765,23 +763,6 @@ final class PolymerClassRewriter {
     }
   }
 
-  // TODO(rishipal): Consider passing behavior's module instead of behavior definition and moving
-  //  this into a common, re-usable place
-  private Map<String, Var> accumulateModuleLocalVars(BehaviorDefinition behavior) {
-    Map<String, Var> moduleLocalNames = new LinkedHashMap<>();
-    List<Var> orderedNames = new ArrayList<>();
-    SyntacticScopeCreator scopeCreator = new SyntacticScopeCreator(compiler);
-    Scope globalScope = Scope.createGlobalScope(behavior.behaviorModule.getParent());
-    NodeUtil.getAllVarsDeclaredInModule(
-        behavior.behaviorModule,
-        moduleLocalNames,
-        orderedNames,
-        compiler,
-        scopeCreator,
-        globalScope);
-    return moduleLocalNames;
-  }
-
   private JSDocInfo.Builder getJSDocInfoBuilderForBehavior(
       BehaviorDefinition behavior, MemberDefinition behaviorFunctionOrProp) {
     JSDocInfo.Builder info;
@@ -790,11 +771,10 @@ final class PolymerClassRewriter {
         && behaviorFunctionOrProp.info.containsTypeDeclaration()) {
 
       if (behavior.behaviorModule != null) {
-        Map<String, Var> moduleLocalNames = accumulateModuleLocalVars(behavior);
         // Replace module local names in @type, @return and @param with unknown type
         info =
             JSDocInfo.Builder.maybeCopyFromAndReplaceNames(
-                behaviorFunctionOrProp.info, moduleLocalNames.keySet());
+                behaviorFunctionOrProp.info, behavior.getModuleLocalNames(compiler));
       } else {
         info = JSDocInfo.Builder.maybeCopyFrom(behaviorFunctionOrProp.info);
       }
@@ -828,10 +808,6 @@ final class PolymerClassRewriter {
         exprResult.srcrefTreeIfMissing(behaviorFunction.name);
 
         JSDocInfo.Builder info = getJSDocInfoBuilderForBehavior(behavior, behaviorFunction);
-
-        // Uses of private members that come from behaviors are not recognized correctly,
-        // so just suppress that warning.
-        info.recordSuppression("unusedPrivateMembers");
 
         // If the function in the behavior is @protected, switch it to @public so that
         // we don't get a visibility warning. This is a bit of a hack but easier than
@@ -889,6 +865,11 @@ final class PolymerClassRewriter {
           info = JSDocInfo.builder().parseDocumentation();
           if (behaviorProp.info != null && behaviorProp.info.getReturnType() != null) {
             info.recordType(behaviorProp.info.getReturnType());
+            if (behaviorProp.enclosingModule != null) {
+              info =
+                  JSDocInfo.Builder.maybeCopyFromAndReplaceNames(
+                      info.build(), behavior.getModuleLocalNames(compiler));
+            }
           }
         }
 
@@ -1033,9 +1014,17 @@ final class PolymerClassRewriter {
       block.addChildToBack(setterExprNode);
     }
 
-    block.srcrefTreeIfMissing(externsInsertionRef);
-    Node stmts = block.removeChildren();
-    externsInsertionRef.addChildrenToBack(stmts);
+    Node stmts;
+    if (NodeUtil.isFromTypeSummary(cls.input.getAstRoot(compiler))) {
+      Node typeSummaryInsertionRef = compiler.getSynthesizedTypeSummaryInput().getAstRoot(compiler);
+      block.srcrefTreeIfMissing(typeSummaryInsertionRef);
+      stmts = block.removeChildren();
+      typeSummaryInsertionRef.addChildrenToBack(stmts);
+    } else {
+      block.srcrefTreeIfMissing(externsInsertionRef);
+      stmts = block.removeChildren();
+      externsInsertionRef.addChildrenToBack(stmts);
+    }
 
     compiler.reportChangeToEnclosingScope(stmts);
   }

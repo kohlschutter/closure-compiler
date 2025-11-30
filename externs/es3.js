@@ -148,46 +148,43 @@ Symbol.unscopables;
 
 /**
  * @record
- * @template VALUE
+ * @template TYield
  */
 function IIterableResult() {};
 
 /** @type {boolean} */
 IIterableResult.prototype.done;
 
-/** @type {VALUE} */
+/** @type {TYield} */
 IIterableResult.prototype.value;
 
 
 
 /**
  * @interface
- * @template VALUE
+ * @template T, TReturn, TNext
  */
 function Iterable() {}
 
-// TODO(johnlenz): remove the suppression when the compiler understands
-// "symbol" natively
 /**
- * @return {!Iterator<VALUE, ?, *>}
- * @suppress {externsValidation}
+ * @return {!Iterator<T, ?, *>}
  */
 Iterable.prototype[Symbol.iterator] = function() {};
 
 
 
 /**
- * TODO(b/142881197): UNUSED_RETURN_T and UNUSED_NEXT_T are not yet used for
- * anything. https://github.com/google/closure-compiler/issues/3489
+ * TODO(b/142881197): TReturn and TNext are not yet used for anything.
+ * https://github.com/google/closure-compiler/issues/3489
  * @interface
- * @template VALUE, UNUSED_RETURN_T, UNUSED_NEXT_T
+ * @template T, TReturn, TNext
  * @see https://developer.mozilla.org/en-US/docs/Web/JavaScript/Guide/The_Iterator_protocol
  */
 function Iterator() {}
 
 /**
  * @param {?=} opt_value
- * @return {!IIterableResult<VALUE>}
+ * @return {!IIterableResult<T>}
  */
 Iterator.prototype.next = function(opt_value) {};
 
@@ -197,8 +194,8 @@ Iterator.prototype.next = function(opt_value) {};
  *
  * @interface
  * @extends {Iterator<T, ?, *>}
- * @extends {Iterable<T>}
- * @template T
+ * @extends {Iterable<T, ?, *>}
+ * @template T, TReturn, TNext
  */
 function IteratorIterable() {}
 
@@ -228,6 +225,9 @@ IArrayLike.prototype.length;
  * @see http://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Functions_and_function_scope/arguments
  */
 function Arguments() {}
+
+/** @override */
+Arguments.prototype[Symbol.iterator] = function() {};
 
 /**
  * @type {Function}
@@ -642,11 +642,9 @@ Function.prototype.toString = function() {};
  */
 function ReadonlyArray() {}
 
-// TODO(johnlenz): remove the suppression when the compiler understands
-// "symbol" natively
 /**
- * @return {Iterator<T>}
- * @suppress {externsValidation}
+ * @return {!IteratorIterable<T>}
+ * @override
  */
 ReadonlyArray.prototype[Symbol.iterator] = function() {};
 
@@ -758,7 +756,7 @@ ReadonlyArray.prototype.forEach = function(callback, opt_thisobj) {};
 
 /**
  * Available in ECMAScript 5, Mozilla 1.6+.
- * @param {?} obj
+ * @param {T} obj
  * @param {number=} opt_fromIndex
  * @return {number}
  * @this {IArrayLike<T>|string}
@@ -770,7 +768,7 @@ ReadonlyArray.prototype.indexOf = function(obj, opt_fromIndex) {};
 
 /**
  * Available in ECMAScript 5, Mozilla 1.6+.
- * @param {?} obj
+ * @param {T} obj
  * @param {number=} opt_fromIndex
  * @return {number}
  * @this {IArrayLike<T>|string}
@@ -822,8 +820,7 @@ ReadonlyArray.prototype.length;
 function Array(var_args) {}
 
 /**
- * @return {Iterator<T>}
- * @suppress {externsValidation}
+ * @return {!IteratorIterable<T>}
  * @override
  */
 Array.prototype[Symbol.iterator] = function() {};
@@ -1969,6 +1966,11 @@ Date.prototype.valueOf;
 function String(opt_str) {}
 
 /**
+ * @override
+ */
+String.prototype[Symbol.iterator] = function() {};
+
+/**
  * @param {...number} var_args
  * @return {string}
  * @nosideeffects
@@ -2134,7 +2136,7 @@ String.prototype.localeCompare = function(compareString, locales, options) {};
  *
  * @this {String|string}
  * @param {*} regexp
- * @return {Array<string>} This should really return an Array with a few
+ * @return {RegExpResult} This should really return an Array with a few
  *     special properties, but we do not have a good way to model this in
  *     our type system. Also see Regexp.prototype.exec.
  * @see http://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/String/match
@@ -2584,7 +2586,7 @@ Error.captureStackTrace = function(error, opt_constructor){};
 
 /**
  * New in ES 2022, adds a cause to the error which is useful for chaining errors
- * @type {?Error}
+ * @type {*}
  * @see https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Error/cause
  */
 Error.prototype.cause;

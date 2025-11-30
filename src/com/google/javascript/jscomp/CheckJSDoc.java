@@ -27,7 +27,7 @@ import com.google.javascript.rhino.Node;
 import com.google.javascript.rhino.Token;
 import java.util.Set;
 import java.util.regex.Pattern;
-import org.jspecify.nullness.Nullable;
+import org.jspecify.annotations.Nullable;
 
 /** Checks for misplaced, misused or deprecated JSDoc annotations. */
 final class CheckJSDoc extends AbstractPostOrderCallback implements CompilerPass {
@@ -160,6 +160,7 @@ final class CheckJSDoc extends AbstractPostOrderCallback implements CompilerPass
     validateReturnJsDoc(n, info);
     validateTsType(n, info);
     validateJsDocTypeNames(info);
+    validateIsUsedViaDotConstructor(n, info);
   }
 
   private void validateSuppress(Node n, JSDocInfo info) {
@@ -167,40 +168,36 @@ final class CheckJSDoc extends AbstractPostOrderCallback implements CompilerPass
       return;
     }
     switch (n.getToken()) {
-      case FUNCTION:
-      case CLASS:
-      case VAR:
-      case LET:
-      case CONST:
-      case SCRIPT:
-      case MEMBER_FUNCTION_DEF:
-      case GETTER_DEF:
-      case SETTER_DEF:
-      case MEMBER_FIELD_DEF:
-      case COMPUTED_FIELD_DEF:
+      case FUNCTION,
+          CLASS,
+          VAR,
+          LET,
+          CONST,
+          SCRIPT,
+          MEMBER_FUNCTION_DEF,
+          GETTER_DEF,
+          SETTER_DEF,
+          MEMBER_FIELD_DEF,
+          COMPUTED_FIELD_DEF -> {
         // Suppressions are always valid here.
         return;
-
-      case COMPUTED_PROP:
+      }
+      case COMPUTED_PROP -> {
         if (n.getLastChild().isFunction()) {
           return; // Suppressions are valid on computed properties that declare functions.
         }
-        break;
-
-      case STRING_KEY:
+      }
+      case STRING_KEY -> {
         if (n.getParent().isObjectLit()) {
           return;
         }
-        break;
-
-      case WITH:
+      }
+      case WITH -> {
         if (containsOnlySuppressionFor(info, "with")) {
           return;
         }
-        break;
-
-      default:
-        break;
+      }
+      default -> {}
     }
     if (containsOnlySuppressionFor(info, "missingRequire")) {
       return;
@@ -226,9 +223,7 @@ final class CheckJSDoc extends AbstractPostOrderCallback implements CompilerPass
       return;
     }
     Node lvalue = NodeUtil.isNameDeclaration(n) || n.isAssign() ? n.getFirstChild() : n;
-    // Static properties for goog.defineClass are rewritten to qualified names before typechecking
-    // runs and are valid as @typedefs.
-    if (!lvalue.isQualifiedName() && !isGoogDefineClassStatic(lvalue)) {
+    if (!lvalue.isQualifiedName()) {
       reportMisplaced(
           n,
           "typedef",
@@ -239,14 +234,6 @@ final class CheckJSDoc extends AbstractPostOrderCallback implements CompilerPass
           "typedef",
           "@typedef is not allowed on instance or prototype properties. Did you mean @type?");
     }
-  }
-
-  /** Whether this is a property in this object: {@code goog.defineClass(superClass, {statics: {} */
-  private boolean isGoogDefineClassStatic(Node n) {
-    return n.isStringKey()
-        && n.getParent().isObjectLit()
-        && n.getGrandparent().isStringKey()
-        && n.getGrandparent().getString().equals("statics");
   }
 
   private void validateTemplates(Node n, JSDocInfo info) {
@@ -283,13 +270,6 @@ final class CheckJSDoc extends AbstractPostOrderCallback implements CompilerPass
 
     if (n.isAssign() && n.getFirstChild().isQualifiedName() && n.getLastChild().isFunction()) {
       return n.getLastChild();
-    }
-
-    if (n.isStringKey()
-        && n.getGrandparent() != null
-        && ClosureRewriteClass.isGoogDefineClass(n.getGrandparent())
-        && n.getFirstChild().isFunction()) {
-      return n.getFirstChild();
     }
 
     if (n.isGetterDef() || n.isSetterDef()) {
@@ -346,10 +326,30 @@ final class CheckJSDoc extends AbstractPostOrderCallback implements CompilerPass
       return;
     }
 
-    Node functionNode = getFunctionDecl(n);
+    // @abstract annotation on a function written as a class field.
+    if (n.isGetProp()) {
+      if (!(n.getFirstChild().isThis() && info.getReturnType() != null)) {
+        report(
+            n,
+            MISPLACED_ANNOTATION,
+            "@abstract",
+            "abstract undeclared methods can only be written as class fields");
+      } else if (!(n.getParent().isExprResult()
+          && n.getGrandparent().isBlock()
+          && n.getParent().getGrandparent().isFunction())) {
+        report(
+            n,
+            MISPLACED_ANNOTATION,
+            "@abstract",
+            "abstract methods without an initializer must be declared in a constructor function.");
+        return;
+      }
+      return;
+    }
 
+    // @abstract annotation on a non-function
+    Node functionNode = getFunctionDecl(n);
     if (functionNode == null) {
-      // @abstract annotation on a non-function
       report(
           n,
           MISPLACED_ANNOTATION,
@@ -368,13 +368,8 @@ final class CheckJSDoc extends AbstractPostOrderCallback implements CompilerPass
       return;
     }
 
-    // TODO(b/124020008): Delete this case when `goog.defineClass` is dropped.
-    boolean isGoogDefineClassConstructor =
-        n.getParent().isObjectLit()
-            && (n.isMemberFunctionDef() || n.isStringKey())
-            && "constructor".equals(n.getString());
-    if (NodeUtil.isEs6ConstructorMemberFunctionDef(n) || isGoogDefineClassConstructor) {
-      // @abstract annotation on an ES6 or goog.defineClass constructor
+    if (NodeUtil.isEs6ConstructorMemberFunctionDef(n)) {
+      // @abstract annotation on an ES6 constructor
       report(n, MISPLACED_ANNOTATION, "@abstract", "constructors cannot be abstract");
       return;
     }
@@ -464,41 +459,39 @@ final class CheckJSDoc extends AbstractPostOrderCallback implements CompilerPass
    */
   private boolean isJSDocOnFunctionNode(Node n, JSDocInfo info) {
     switch (n.getToken()) {
-      case FUNCTION:
-      case GETTER_DEF:
-      case SETTER_DEF:
-      case MEMBER_FUNCTION_DEF:
-      case STRING_KEY:
-      case COMPUTED_PROP:
-      case EXPORT:
-      case MEMBER_FIELD_DEF:
-      case COMPUTED_FIELD_DEF:
+      case FUNCTION,
+          GETTER_DEF,
+          SETTER_DEF,
+          MEMBER_FUNCTION_DEF,
+          STRING_KEY,
+          COMPUTED_PROP,
+          EXPORT,
+          MEMBER_FIELD_DEF,
+          COMPUTED_FIELD_DEF -> {
         return true;
-      case GETELEM:
-      case GETPROP:
+      }
+      case GETELEM, GETPROP -> {
         if (n.getFirstChild().isQualifiedName()) {
           // assume qualified names may be function declarations
           return true;
         }
         return false;
-      case VAR:
-      case LET:
-      case CONST:
-      case ASSIGN:
-        {
-          Node lhs = n.getFirstChild();
-          Node rhs = NodeUtil.getRValueOfLValue(lhs);
-          if (rhs != null && isClass(rhs) && !info.isConstructor()) {
-            return false;
-          }
-
-          // TODO(b/124081098): Check that the RHS of the assignment is a
-          // function. Note that it can be a FUNCTION node, but it can also be
-          // a call to goog.abstractMethod, goog.functions.constant, etc.
-          return true;
+      }
+      case VAR, LET, CONST, ASSIGN -> {
+        Node lhs = n.getFirstChild();
+        Node rhs = NodeUtil.getRValueOfLValue(lhs);
+        if (rhs != null && isClass(rhs) && !info.isConstructor()) {
+          return false;
         }
-      default:
+
+        // TODO(b/124081098): Check that the RHS of the assignment is a
+        // function. Note that it can be a FUNCTION node, but it can also be
+        // a call to goog.abstractMethod, goog.functions.constant, etc.
+        return true;
+      }
+      default -> {
         return false;
+      }
     }
   }
 
@@ -513,8 +506,7 @@ final class CheckJSDoc extends AbstractPostOrderCallback implements CompilerPass
       return;
     }
 
-    boolean hasNonDescMsgTag =
-        info.isHidden() || info.getMeaning() != null || info.getAlternateMessageId() != null;
+    boolean hasNonDescMsgTag = info.getMeaning() != null || info.getAlternateMessageId() != null;
 
     if (hasNonDescMsgTag
         // Don't error on TS gencode using @desc on a non-message. There's a lot of code that
@@ -522,22 +514,14 @@ final class CheckJSDoc extends AbstractPostOrderCallback implements CompilerPass
         || (info.getDescription() != null && !isFromTs(n))) {
       boolean descOkay = false;
       switch (n.getToken()) {
-        case ASSIGN:
-        case VAR:
-        case LET:
-        case CONST:
-          descOkay = isValidMsgName(n.getFirstChild());
-          break;
-        case STRING_KEY:
-          descOkay = isValidMsgName(n);
-          break;
-        case GETPROP:
+        case ASSIGN, VAR, LET, CONST -> descOkay = isValidMsgName(n.getFirstChild());
+        case STRING_KEY -> descOkay = isValidMsgName(n);
+        case GETPROP -> {
           if (n.isFromExterns() && n.isQualifiedName()) {
             descOkay = isValidMsgName(n);
           }
-          break;
-        default:
-          break;
+        }
+        default -> {}
       }
       if (!descOkay) {
         report(n, MISPLACED_MSG_ANNOTATION);
@@ -561,57 +545,40 @@ final class CheckJSDoc extends AbstractPostOrderCallback implements CompilerPass
     if (info != null && info.hasType()) {
       boolean valid = false;
       switch (n.getToken()) {
-          // Function declarations are valid
-        case FUNCTION:
-          valid = NodeUtil.isFunctionDeclaration(n);
-          break;
-          // Object literal properties, catch declarations and variable
-          // initializers are valid.
-        case NAME:
-          valid = isTypeAnnotationAllowedForName(n);
-          break;
-        case ARRAY_PATTERN:
-        case OBJECT_PATTERN:
-          // allow JSDoc like
-          //   function f(/** !Object */ {x}) {}
-          //   function f(/** !Array */ [x]) {}
-          valid = n.getParent().isParamList();
-          break;
-          // Casts, exports, and Object literal properties are valid.
-        case CAST:
-        case EXPORT:
-        case STRING_KEY:
-        case GETTER_DEF:
-        case SETTER_DEF:
-        case MEMBER_FIELD_DEF:
-        case COMPUTED_FIELD_DEF:
-          valid = true;
-          break;
-          // Declarations are valid iff they only contain simple names
-          //   /** @type {number} */ var x = 3; // ok
-          //   /** @type {number} */ var {x} = obj; // forbidden
-        case VAR:
-        case LET:
-        case CONST:
-          valid = !NodeUtil.isDestructuringDeclaration(n);
-          break;
-          // Property assignments are valid, if at the root of an expression.
-        case ASSIGN:
-          {
-            Node lvalue = n.getFirstChild();
-            valid =
-                n.getParent().isExprResult()
-                    && (lvalue.isGetProp() || lvalue.isGetElem() || lvalue.matchesName("exports"));
-            break;
-          }
-        case GETPROP:
-          valid = n.getParent().isExprResult() && n.isQualifiedName();
-          break;
-        case CALL:
-          valid = info.isDefine();
-          break;
-        default:
-          break;
+        case FUNCTION ->
+            // Function declarations are valid
+            valid = NodeUtil.isFunctionDeclaration(n);
+        // Object literal properties, catch declarations and variable
+        // initializers are valid.
+        case NAME -> valid = isTypeAnnotationAllowedForName(n);
+        case ARRAY_PATTERN, OBJECT_PATTERN ->
+            // allow JSDoc like
+            //   function f(/** !Object */ {x}) {}
+            //   function f(/** !Array */ [x]) {}
+            valid = n.getParent().isParamList();
+        // Casts, exports, and Object literal properties are valid.
+        case CAST,
+            EXPORT,
+            STRING_KEY,
+            GETTER_DEF,
+            SETTER_DEF,
+            MEMBER_FIELD_DEF,
+            COMPUTED_FIELD_DEF ->
+            valid = true;
+        // Declarations are valid iff they only contain simple names
+        //   /** @type {number} */ var x = 3; // ok
+        //   /** @type {number} */ var {x} = obj; // forbidden
+        case VAR, LET, CONST -> valid = !NodeUtil.isDestructuringDeclaration(n);
+        // Property assignments are valid, if at the root of an expression.
+        case ASSIGN -> {
+          Node lvalue = n.getFirstChild();
+          valid =
+              n.getParent().isExprResult()
+                  && (lvalue.isGetProp() || lvalue.isGetElem() || lvalue.matchesName("exports"));
+        }
+        case GETPROP -> valid = n.getParent().isExprResult() && n.isQualifiedName();
+        case CALL -> valid = info.isDefine();
+        default -> {}
       }
 
       if (!valid) {
@@ -816,6 +783,17 @@ final class CheckJSDoc extends AbstractPostOrderCallback implements CompilerPass
           || ClosureRewriteModule.isModuleContent(rootOfType)) {
         typeRefNode.setString("UnrecognizedType_" + typeName);
       }
+    }
+  }
+
+  /** Checks that @usedViaDotConstructor is only used on constructors. */
+  private void validateIsUsedViaDotConstructor(Node n, JSDocInfo info) {
+    if (info == null || !info.isUsedViaDotConstructor()) {
+      return;
+    }
+    if (!(n.isFunction() && info.isConstructor())
+        && !NodeUtil.isEs6ConstructorMemberFunctionDef(n)) {
+      report(n, MISPLACED_ANNOTATION, "usedViaDotConstructor", "must be on a constructor");
     }
   }
 }

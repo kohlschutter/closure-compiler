@@ -19,7 +19,6 @@ package com.google.javascript.jscomp;
 import static com.google.common.base.Preconditions.checkNotNull;
 import static com.google.common.base.Preconditions.checkState;
 
-import com.google.common.annotations.GwtIncompatible;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Ascii;
 import com.google.common.collect.ImmutableList;
@@ -32,19 +31,19 @@ import com.google.javascript.jscomp.JsMessage.PlaceholderFormatException;
 import com.google.javascript.jscomp.JsMessage.PlaceholderReference;
 import com.google.javascript.jscomp.JsMessage.StringPart;
 import com.google.javascript.jscomp.NodeTraversal.AbstractPostOrderCallback;
-import com.google.javascript.jscomp.base.format.SimpleFormat;
 import com.google.javascript.rhino.JSDocInfo;
 import com.google.javascript.rhino.Node;
 import com.google.javascript.rhino.Token;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
+import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
 import java.util.Set;
 import java.util.function.Function;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
-import org.jspecify.nullness.Nullable;
+import org.jspecify.annotations.Nullable;
 
 /**
  * Locates JS code that is intended to declare localizable messages.
@@ -54,14 +53,22 @@ import org.jspecify.nullness.Nullable;
  * or {@link JsMessageVisitor#processIcuTemplateDefinition(IcuTemplateDefinition)} for {@code
  * goog.i18n.messages.declareIcuTemplate()} calls.
  */
-@GwtIncompatible("JsMessage, java.util.regex")
 public abstract class JsMessageVisitor extends AbstractPostOrderCallback implements CompilerPass {
 
-  private static final String MSG_FUNCTION_NAME = "goog.getMsg";
+  private static final String MSG_FUNCTION_NAME = "getMsg";
+  private static final String MSG_FUNCTION_QNAME = "goog." + MSG_FUNCTION_NAME;
   private static final String ICU_MSG_FUNCTION_NAME = "declareIcuTemplate";
   private static final String ICU_MSG_FUNCTION_QNAME =
       "goog.i18n.messages." + ICU_MSG_FUNCTION_NAME;
   private static final String MSG_FALLBACK_FUNCTION_NAME = "goog.getMsgWithFallback";
+
+  /**
+   * Expose a list of functions that are used in message extraction. Standalone tools that run
+   * message extraction can use this list to filter out files that do not contain any of these
+   * functions.
+   */
+  public static final List<String> FUNCTIONS_USED_IN_MESSAGE_EXTRACTION =
+      ImmutableList.of(MSG_FUNCTION_NAME, ICU_MSG_FUNCTION_NAME);
 
   /**
    * Identifies a message with a specific ID which doesn't get extracted from the JS code containing
@@ -104,14 +111,14 @@ public abstract class JsMessageVisitor extends AbstractPostOrderCallback impleme
       DiagnosticType.warning(
           "JSC_MSG_NOT_INITIALIZED_CORRECTLY",
           "Message must be initialized using a call to "
-              + MSG_FUNCTION_NAME
+              + MSG_FUNCTION_QNAME
               + " or "
               + ICU_MSG_FUNCTION_QNAME);
 
   public static final DiagnosticType BAD_FALLBACK_SYNTAX =
       DiagnosticType.error(
           "JSC_MSG_BAD_FALLBACK_SYNTAX",
-          SimpleFormat.format(
+          String.format(
               "Bad syntax. " + "Expected syntax: %s(MSG_1, MSG_2)", MSG_FALLBACK_FUNCTION_NAME));
 
   public static final DiagnosticType FALLBACK_ARG_ERROR =
@@ -204,7 +211,7 @@ public abstract class JsMessageVisitor extends AbstractPostOrderCallback impleme
     final JSDocInfo jsDocInfo;
 
     switch (node.getToken()) {
-      case NAME:
+      case NAME -> {
         // Case: `var MSG_HELLO = 'Message';`
         if (parent == null || !NodeUtil.isNameDeclaration(parent)) {
           return;
@@ -214,9 +221,8 @@ public abstract class JsMessageVisitor extends AbstractPostOrderCallback impleme
         originalMessageKey = node.getOriginalName();
         msgNode = node.getFirstChild();
         jsDocInfo = parent.getJSDocInfo();
-        break;
-
-      case ASSIGN:
+      }
+      case ASSIGN -> {
         // Case: `somenamespace.someclass.MSG_HELLO = 'Message';`
         Node getProp = node.getFirstChild();
         if (!getProp.isGetProp()) {
@@ -227,9 +233,8 @@ public abstract class JsMessageVisitor extends AbstractPostOrderCallback impleme
         originalMessageKey = getProp.getOriginalName();
         msgNode = node.getLastChild();
         jsDocInfo = node.getJSDocInfo();
-        break;
-
-      case STRING_KEY:
+      }
+      case STRING_KEY -> {
         // Case: `var t = {MSG_HELLO: 'Message'}`;
         if (node.isQuotedStringKey() || !node.hasChildren() || parent.isObjectPattern()) {
           // Don't require goog.getMsg() for quoted keys
@@ -248,18 +253,17 @@ public abstract class JsMessageVisitor extends AbstractPostOrderCallback impleme
         originalMessageKey = node.getOriginalName();
         msgNode = node.getFirstChild();
         jsDocInfo = node.getJSDocInfo();
-        break;
-
-      case MEMBER_FIELD_DEF:
+      }
+      case MEMBER_FIELD_DEF -> {
         // Case: `class Foo { MSG_HELLO = 'Message'; }`
         possiblyObfuscatedMessageKey = node.getString();
         originalMessageKey = node.getOriginalName();
         msgNode = node.getFirstChild();
         jsDocInfo = node.getJSDocInfo();
-        break;
-
-      default:
+      }
+      default -> {
         return;
+      }
     }
 
     String messageKeyFromLhs =
@@ -314,7 +318,7 @@ public abstract class JsMessageVisitor extends AbstractPostOrderCallback impleme
         trackMessage(traversal, possiblyObfuscatedMessageKey, msgNode, extractedMessage);
         reportErrorIfEmptyMessage(node, extractedMessage);
         processIcuTemplateDefinition(icuTemplateDefinition);
-      } else if (fnNameNode.matchesQualifiedName(MSG_FUNCTION_NAME)) {
+      } else if (fnNameNode.matchesQualifiedName(MSG_FUNCTION_QNAME)) {
         final JsMessageDefinition jsMessageDefinition =
             extractJsMessageDefinition(msgNode, jsDocInfo, messageKeyFromLhs, sourceName);
         final JsMessage extractedMessage = jsMessageDefinition.getMessage();
@@ -335,7 +339,7 @@ public abstract class JsMessageVisitor extends AbstractPostOrderCallback impleme
                 msgNode,
                 MESSAGE_TREE_MALFORMED,
                 "Message must be initialized using a call to "
-                    + MSG_FUNCTION_NAME
+                    + MSG_FUNCTION_QNAME
                     + " or "
                     + ICU_MSG_FUNCTION_NAME
                     + " (from goog.i18n.messages)."));
@@ -501,7 +505,7 @@ public abstract class JsMessageVisitor extends AbstractPostOrderCallback impleme
 
     // goog.getMsg()
     final Node callee = call.getFirstChild();
-    if (callee.matchesQualifiedName(MSG_FUNCTION_NAME) || isDeclareIcuTemplateCallee(callee)) {
+    if (callee.matchesQualifiedName(MSG_FUNCTION_QNAME) || isDeclareIcuTemplateCallee(callee)) {
       googMsgNodes.add(call);
     } else if (callee.matchesQualifiedName(MSG_FALLBACK_FUNCTION_NAME)) {
       visitFallbackFunctionCall(traversal, call);
@@ -621,9 +625,10 @@ public abstract class JsMessageVisitor extends AbstractPostOrderCallback impleme
    */
   private static String extractStringFromStringExprNode(Node node) throws MalformedException {
     switch (node.getToken()) {
-      case STRINGLIT:
+      case STRINGLIT -> {
         return node.getString();
-      case TEMPLATELIT:
+      }
+      case TEMPLATELIT -> {
         if (node.hasOneChild()) {
           // Cooked string can be null only for tagged template literals.
           // A tagged template literal would hit the default case below.
@@ -632,14 +637,15 @@ public abstract class JsMessageVisitor extends AbstractPostOrderCallback impleme
           throw new MalformedException(
               "Template literals with substitutions are not allowed.", node);
         }
-      case ADD:
+      }
+      case ADD -> {
         StringBuilder sb = new StringBuilder();
         for (Node child = node.getFirstChild(); child != null; child = child.getNext()) {
           sb.append(extractStringFromStringExprNode(child));
         }
         return sb.toString();
-      default:
-        throw new MalformedException("literal string or concatenation expected", node);
+      }
+      default -> throw new MalformedException("literal string or concatenation expected", node);
     }
   }
 
@@ -1041,6 +1047,7 @@ public abstract class JsMessageVisitor extends AbstractPostOrderCallback impleme
   private interface JsMessageOptions {
     // Replace `'<'` with `'&lt;'` in the message.
     boolean isEscapeLessThan();
+
     // Replace these escaped entities with their literal characters in the message
     // (Overrides escapeLessThan)
     // '&lt;' -> '<'
@@ -1205,6 +1212,13 @@ public abstract class JsMessageVisitor extends AbstractPostOrderCallback impleme
             .addAll(placeholderExamplesMap.keySet())
             .addAll(placeholderOriginalCodeMap.keySet())
             .build();
+
+    for (String placeholderName : placeholderNames) {
+      if (!JsMessage.isCanonicalPlaceholderNameFormat(placeholderName)) {
+        throw new MalformedException(
+            String.format("Placeholder not in UPPER_SNAKE_CASE: %s", placeholderName), optionsBag);
+      }
+    }
 
     // NOTE: The getX() methods below should all do little to no computation.
     // In particular, all checking for MalformedExceptions must be done before creating this object.

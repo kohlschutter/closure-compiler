@@ -16,7 +16,7 @@
 
 package com.google.javascript.jscomp;
 
-import org.jspecify.nullness.Nullable;
+import org.jspecify.annotations.Nullable;
 
 /** All warnings should be reported as errors. */
 public final class StrictWarningsGuard extends WarningsGuard {
@@ -27,10 +27,10 @@ public final class StrictWarningsGuard extends WarningsGuard {
 
   @Override
   public @Nullable CheckLevel level(JSError error) {
-    if (error.getType() == UNRAISABLE_WARNING) {
+    if (error.type() == UNRAISABLE_WARNING) {
       return null;
     }
-    return error.getDefaultLevel().isOn() ? CheckLevel.ERROR : null;
+    return error.defaultLevel().isOn() ? CheckLevel.ERROR : null;
   }
 
   @Override

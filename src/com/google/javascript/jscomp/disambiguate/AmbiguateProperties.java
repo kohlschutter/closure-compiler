@@ -56,7 +56,7 @@ import java.util.Set;
 import java.util.function.Supplier;
 import java.util.logging.Level;
 import java.util.logging.Logger;
-import org.jspecify.nullness.Nullable;
+import org.jspecify.annotations.Nullable;
 
 /**
  * Renames unrelated properties to the same name, using {@link Color}s provided by the typechecker.
@@ -82,9 +82,9 @@ public class AmbiguateProperties implements CompilerPass {
 
   private final List<Node> stringNodesToRename = new ArrayList<>();
   // Can't use these to start property names.
-  private final char[] reservedFirstCharacters;
+  private final Set<Character> reservedFirstCharacters;
   // Can't use these at all in property names.
-  private final char[] reservedNonFirstCharacters;
+  private final Set<Character> reservedNonFirstCharacters;
 
   /** Map from property name to Property object */
   private final Map<String, Property> propertyMap = new LinkedHashMap<>();
@@ -116,8 +116,8 @@ public class AmbiguateProperties implements CompilerPass {
 
   public AmbiguateProperties(
       AbstractCompiler compiler,
-      char[] reservedFirstCharacters,
-      char[] reservedNonFirstCharacters,
+      Set<Character> reservedFirstCharacters,
+      Set<Character> reservedNonFirstCharacters,
       Set<String> externProperties) {
     checkState(compiler.getLifeCycleStage().isNormalized());
     this.compiler = compiler;
@@ -131,8 +131,8 @@ public class AmbiguateProperties implements CompilerPass {
 
   static AmbiguateProperties makePassForTesting(
       AbstractCompiler compiler,
-      char[] reservedFirstCharacters,
-      char[] reservedNonFirstCharacters,
+      Set<Character> reservedFirstCharacters,
+      Set<Character> reservedNonFirstCharacters,
       Set<String> externProperties) {
     AmbiguateProperties ap =
         new AmbiguateProperties(
@@ -225,7 +225,10 @@ public class AmbiguateProperties implements CompilerPass {
     // Generate new names for the properties that will be renamed.
     NameGenerator nameGen =
         new DefaultNameGenerator(
-            reservedNames.build(), "", reservedFirstCharacters, reservedNonFirstCharacters);
+            reservedNames.build(),
+            "",
+            this.reservedFirstCharacters,
+            this.reservedNonFirstCharacters);
     String[] colorMap = new String[numNewPropertyNames];
     for (int i = 0; i < numNewPropertyNames; ++i) {
       colorMap[i] = nameGen.generateNextName();
@@ -372,37 +375,36 @@ public class AmbiguateProperties implements CompilerPass {
     @Override
     public void visit(NodeTraversal t, Node n, Node parent) {
       switch (n.getToken()) {
-        case GETPROP:
-        case OPTCHAIN_GETPROP:
+        case GETPROP, OPTCHAIN_GETPROP -> {
           processGetProp(n);
           return;
-
-        case CALL:
+        }
+        case CALL -> {
           processCall(n);
           return;
-
-        case NAME:
+        }
+        case NAME -> {
           // handle ES5-style classes
           if (NodeUtil.isNameDeclaration(parent) || parent.isFunction()) {
             graphNodeFactory.createNode(getColor(n));
           }
           return;
-
-        case OBJECTLIT:
-        case OBJECT_PATTERN:
+        }
+        case OBJECTLIT, OBJECT_PATTERN -> {
           processObjectLitOrPattern(n);
           return;
-
-        case GETELEM:
+        }
+        case GETELEM -> {
           processGetElem(n);
           return;
-
-        case CLASS:
+        }
+        case CLASS -> {
           processClass(n);
           return;
-
-        default:
+        }
+        default -> {
           // Nothing to do.
+        }
       }
     }
 
@@ -449,7 +451,7 @@ public class AmbiguateProperties implements CompilerPass {
     private void processObjectProperty(Node objectLit, Node key, Color type) {
       checkArgument(objectLit.isObjectLit() || objectLit.isObjectPattern(), objectLit);
       switch (key.getToken()) {
-        case COMPUTED_PROP:
+        case COMPUTED_PROP -> {
           if (key.getFirstChild().isStringLit()) {
             // If this quoted prop name is statically determinable, ensure we don't rename some
             // other property in a way that could conflict with it.
@@ -458,11 +460,8 @@ public class AmbiguateProperties implements CompilerPass {
             // want to be consistent with how other quoted properties invalidate property names.
             quotedNames.add(key.getFirstChild().getString());
           }
-          break;
-        case MEMBER_FUNCTION_DEF:
-        case GETTER_DEF:
-        case SETTER_DEF:
-        case STRING_KEY:
+        }
+        case MEMBER_FUNCTION_DEF, GETTER_DEF, SETTER_DEF, STRING_KEY -> {
           if (key.isQuotedStringKey()) {
             // If this quoted prop name is statically determinable, ensure we don't rename some
             // other property in a way that could conflict with it
@@ -470,15 +469,13 @@ public class AmbiguateProperties implements CompilerPass {
           } else {
             maybeMarkCandidate(key, type);
           }
-          break;
-
-        case OBJECT_REST:
-        case OBJECT_SPREAD:
-          break; // Nothing to do.
-
-        default:
-          throw new IllegalStateException(
-              "Unexpected child of " + objectLit.getToken() + ": " + key.toStringTree());
+        }
+        case OBJECT_REST, OBJECT_SPREAD -> {
+          // Nothing to do.
+        }
+        default ->
+            throw new IllegalStateException(
+                "Unexpected child of " + objectLit.getToken() + ": " + key.toStringTree());
       }
     }
 
@@ -539,6 +536,10 @@ public class AmbiguateProperties implements CompilerPass {
           // don't rename `class C { constructor() {} }` !
           // This only applies for ES6 classes, not generic properties called 'constructor', which
           // is why it's handled in this method specifically.
+          continue;
+        } else if (member.isBlock()) {
+          // ES2022 static initialization blocks don't have names so can't be renamed.
+          // Example: `class C { static { alert('foo'); } }`
           continue;
         }
 

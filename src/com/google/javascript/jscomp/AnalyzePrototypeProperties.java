@@ -31,7 +31,7 @@ import java.util.Deque;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import org.jspecify.nullness.Nullable;
+import org.jspecify.annotations.Nullable;
 
 /**
  * Analyzes properties on prototypes.
@@ -522,8 +522,8 @@ class AnalyzePrototypeProperties implements CompilerPass {
 
       Node n = ref.getParent();
       switch (n.getToken()) {
+        case GETPROP -> {
           // Foo.prototype.getBar = function() { ... }
-        case GETPROP:
           Node parent = n.getParent();
           Node grandParent = parent.getParent();
 
@@ -534,10 +534,9 @@ class AnalyzePrototypeProperties implements CompilerPass {
             getNameInfoForName(n.getString(), PROPERTY).getDeclarations().add(prop);
             return true;
           }
-          break;
-
+        }
+        case ASSIGN -> {
           // Foo.prototype = { "getBar" : function() { ... } }
-        case ASSIGN:
           Node map = n.getSecondChild();
           if (map.isObjectLit()) {
             for (Node key = map.getFirstChild(); key != null; key = key.getNext()) {
@@ -553,9 +552,8 @@ class AnalyzePrototypeProperties implements CompilerPass {
             }
             return true;
           }
-          break;
-        default:
-          break;
+        }
+        default -> {}
       }
       return false;
     }

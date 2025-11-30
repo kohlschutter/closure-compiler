@@ -28,7 +28,7 @@ import com.google.javascript.rhino.NominalTypeBuilder;
 import com.google.javascript.rhino.QualifiedName;
 import com.google.javascript.rhino.jstype.FunctionType;
 import java.util.List;
-import org.jspecify.nullness.Nullable;
+import org.jspecify.annotations.Nullable;
 
 /**
  * This describes the Closure-specific JavaScript coding conventions.
@@ -134,13 +134,6 @@ public final class ClosureCodingConvention extends CodingConventions.Proxy {
     }
 
     return null;
-  }
-
-  private static final QualifiedName GOOG_DEFINECLASS = QualifiedName.of("goog.defineClass");
-
-  @Override
-  public boolean isClassFactoryCall(Node callNode) {
-    return GOOG_DEFINECLASS.matches(callNode.getFirstChild());
   }
 
   /**
@@ -397,8 +390,7 @@ public final class ClosureCodingConvention extends CodingConventions.Proxy {
   private static final QualifiedName GOOG_PARTIAL = QualifiedName.of("goog.partial");
 
   @Override
-  public @Nullable Bind describeFunctionBind(
-      Node n, boolean callerChecksTypes, boolean iCheckTypes) {
+  public @Nullable Bind describeFunctionBind(Node n, boolean checkTypes) {
     if (!n.isCall()) {
       return null;
     }
@@ -426,7 +418,7 @@ public final class ClosureCodingConvention extends CodingConventions.Proxy {
         return new Bind(fn, thisValue, parameters);
       }
     }
-    return super.describeFunctionBind(n, callerChecksTypes, iCheckTypes);
+    return super.describeFunctionBind(n, checkTypes);
   }
 
   @Override

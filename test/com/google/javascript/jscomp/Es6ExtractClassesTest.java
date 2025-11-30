@@ -17,6 +17,7 @@
 package com.google.javascript.jscomp;
 
 import com.google.javascript.jscomp.CompilerOptions.LanguageMode;
+import com.google.javascript.jscomp.testing.TestExternsBuilder;
 import org.junit.Before;
 import org.junit.Test;
 import org.junit.runner.RunWith;
@@ -27,7 +28,7 @@ public final class Es6ExtractClassesTest extends CompilerTestCase {
 
   @Override
   protected CompilerPass getProcessor(Compiler compiler) {
-    return new Es6ExtractClasses(compiler);
+    return new Es6NormalizeClasses(compiler);
   }
 
   @Override
@@ -42,139 +43,200 @@ public final class Es6ExtractClassesTest extends CompilerTestCase {
     enableTypeCheck();
     replaceTypesWithColors();
     enableMultistageCompilation();
+    setGenericNameReplacements(Es6NormalizeClasses.GENERIC_NAME_REPLACEMENTS);
   }
 
   @Test
   public void testExtractionFromCall() {
     test(
         "f(class{});",
-        lines("const testcode$classdecl$var0 = class {};", "f(testcode$classdecl$var0);"));
+        """
+        const CLASS_DECL$0 = class {};
+        f(CLASS_DECL$0);
+        """);
   }
 
   @Test
   public void testSelfReference1() {
     test(
-        "var Outer = class Inner { constructor() { alert(Inner); } };",
-        lines(
-            "const testcode$classdecl$var0 = class {",
-            "  constructor() { alert(testcode$classdecl$var0); }",
-            "};",
-            "/** @constructor */",
-            "var Outer=testcode$classdecl$var0"));
+        """
+        var Outer = class Inner {
+          constructor() {
+            alert(Inner);
+          }
+        };
+        """,
+        """
+        var Outer = class {
+          constructor() {
+            alert(Outer);
+          }
+        };
+        """);
 
     test(
-        "let Outer = class Inner { constructor() { alert(Inner); } };",
-        lines(
-            "const testcode$classdecl$var0 = class {",
-            "  constructor() { alert(testcode$classdecl$var0); }",
-            "};",
-            "/** @constructor */",
-            "let Outer=testcode$classdecl$var0"));
+        """
+        let Outer = class Inner {
+          constructor() {
+            alert(Inner);
+          }
+        };
+        """,
+        """
+        let Outer = class {
+          constructor() {
+            alert(Outer);
+          }
+        };
+        """);
 
     test(
-        "const Outer = class Inner { constructor() { alert(Inner); } };",
-        lines(
-            "const testcode$classdecl$var0 = class {",
-            "  constructor() { alert(testcode$classdecl$var0); }",
-            "};",
-            "/** @constructor */",
-            "const Outer=testcode$classdecl$var0"));
+        """
+        const Outer = class Inner {
+          constructor() {
+            alert(Inner);
+          }
+        };
+        """,
+        """
+        const Outer = class {
+          constructor() {
+            alert(Outer);
+          }
+        };
+        """);
   }
 
   @Test
   public void testSelfReference2() {
     test(
-        "alert(class C { constructor() { alert(C); } });",
-        lines(
-            "const testcode$classdecl$var0 = class {",
-            "  constructor() { alert(testcode$classdecl$var0); }",
-            "};",
-            "alert(testcode$classdecl$var0)"));
+        """
+        alert(class C {
+          constructor() {
+            alert(C);
+          }
+        });
+        """,
+        """
+        const CLASS_DECL$0 = class {
+          constructor() {
+            alert(CLASS_DECL$0);
+          }
+        };
+        alert(CLASS_DECL$0)
+        """);
   }
 
   @Test
   public void testSelfReference3() {
     test(
-        lines("alert(class C {", "  m1() { class C {}; alert(C); }", "  m2() { alert(C); }", "});"),
-        lines(
-            "const testcode$classdecl$var0 = class {",
-            "  m1() { class C {}; alert(C); }",
-            "  m2() { alert(testcode$classdecl$var0); }",
-            "};",
-            "alert(testcode$classdecl$var0)"));
+        """
+        alert(class C {
+          m1() {
+            class C {};
+            alert(C);
+          }
+          m2() {
+            alert(C);
+          }
+        });
+        """,
+        """
+        const CLASS_DECL$0 = class {
+          m1() {
+            class C {};
+            alert(C);
+          }
+          m2() {
+            alert(CLASS_DECL$0);
+          }
+        };
+        alert(CLASS_DECL$0)
+        """);
   }
 
   @Test
   public void testSelfReference_googModule() {
     test(
-        lines(
-            "goog.module('example');",
-            "exports = class Inner { constructor() { alert(Inner); } };"),
-        lines(
-            "/** @const */ const testcode$classdecl$var0=class {",
-            "  constructor(){ alert(testcode$classdecl$var0); }",
-            "};",
-            "/**",
-            " * @constructor",
-            " * @const",
-            " */ ",
-            "var module$exports$example=testcode$classdecl$var0"));
+        externs(new TestExternsBuilder().addClosureExterns().build()),
+        srcs(
+            """
+            goog.module('example');
+            exports = class Inner { constructor() { alert(Inner); } };
+            """),
+        expected(
+            """
+            /** @const */
+            var module$exports$example = class {
+              constructor() {
+                alert(module$exports$example);
+              }
+            };
+            """));
   }
 
   @Test
   public void testSelfReference_qualifiedName() {
     test(
-        lines(
-            "const outer = {};",
-            "/** @const */ outer.qual = {};",
-            "outer.qual.Name = class Inner { constructor() { alert(Inner); } };"),
-        lines(
-            "const outer = {};",
-            "/** @const */ outer.qual = {};",
-            "const testcode$classdecl$var0 = class {",
-            "  constructor() {",
-            "    alert(testcode$classdecl$var0);",
-            "  }",
-            "};",
-            "/** @constructor */",
-            "outer.qual.Name = testcode$classdecl$var0;"));
+        """
+        const outer = {};
+        /** @const */
+        outer.qual = {};
+        outer.qual.Name = class Inner {
+          constructor() {
+            alert(Inner);
+          }
+        };
+        """,
+        """
+        const outer = {};
+        /** @const */
+        outer.qual = {};
+        outer.qual.Name = class {
+          constructor() {
+            alert(outer.qual.Name);
+          }
+        };
+        """);
   }
 
   @Test
   public void testConstAssignment() {
     test(
         "var foo = bar(class {});",
-        lines(
-            "const testcode$classdecl$var0 = class {};",
-            "var foo = bar(testcode$classdecl$var0);"));
+        """
+        const CLASS_DECL$0 = class {};
+        var foo = bar(CLASS_DECL$0);
+        """);
   }
 
   @Test
   public void testLetAssignment() {
     test(
         "let foo = bar(class {});",
-        lines(
-            "const testcode$classdecl$var0 = class {};",
-            "let foo = bar(testcode$classdecl$var0);"));
+        """
+        const CLASS_DECL$0 = class {};
+        let foo = bar(CLASS_DECL$0);
+        """);
   }
 
   @Test
   public void testVarAssignment() {
     test(
         "var foo = bar(class {});",
-        lines(
-            "const testcode$classdecl$var0 = class {};",
-            "var foo = bar(testcode$classdecl$var0);"));
+        """
+        const CLASS_DECL$0 = class {};
+        var foo = bar(CLASS_DECL$0);
+        """);
   }
 
   @Test
   public void testJSDocOnVar() {
     test(
         "/** @unrestricted */ var foo = class bar {};",
-        lines(
-            "const testcode$classdecl$var0 = class {};",
-            "/** @constructor */",
-            "var foo = testcode$classdecl$var0;"));
+        """
+        var foo = class {};
+        """);
   }
 
   @Test
@@ -184,9 +246,10 @@ public final class Es6ExtractClassesTest extends CompilerTestCase {
         expected(
             SourceFile.fromCode(
                 "unusual@name",
-                lines(
-                    "const unusual$name$classdecl$var0 = class{};",
-                    "alert(unusual$name$classdecl$var0);"))));
+                """
+                const CLASS_DECL$0 = class{};
+                alert(CLASS_DECL$0);
+                """)));
   }
 
   @Test
@@ -196,71 +259,71 @@ public final class Es6ExtractClassesTest extends CompilerTestCase {
         expected(
             SourceFile.fromCode(
                 "+path/file",
-                lines(
-                    "const $some$$path$file$classdecl$var0 = class{};",
-                    "alert($some$$path$file$classdecl$var0);"))));
+                """
+                const CLASS_DECL$0 = class{};
+                alert(CLASS_DECL$0);
+                """)));
   }
 
   @Test
   public void testConditionalBlocksExtractionFromCall() {
     test(
         "maybeTrue() && f(class{});",
-        lines(
-            "if (maybeTrue()) {",
-            "  const testcode$classdecl$var0=class{};",
-            "  f(testcode$classdecl$var0);",
-            "}"));
+        """
+        maybeTrue() && f((() => {
+          const CLASS_DECL$0 = class {};
+          return CLASS_DECL$0;
+        })());
+        """);
   }
 
   @Test
   public void testExtractionFromArrayLiteral() {
     test(
         "var c = [class C {}];",
-        lines("const testcode$classdecl$var0 = class {};", "var c = [testcode$classdecl$var0];"));
+        """
+        const CLASS_DECL$0 = class {};
+        var c = [CLASS_DECL$0];
+        """);
   }
 
   @Test
   public void testTernaryOperatorBlocksExtraction() {
     test(
         "var c = maybeTrue() ? class A {} : anotherExpr",
-        lines(
-            "var JSCompiler_temp$jscomp$0;",
-            "if (maybeTrue()) {",
-            "  const testcode$classdecl$var0=class{};",
-            "  /** @constructor */ JSCompiler_temp$jscomp$0 = testcode$classdecl$var0;",
-            "} else {",
-            "  JSCompiler_temp$jscomp$0 = anotherExpr;",
-            "}",
-            "var c = JSCompiler_temp$jscomp$0;"));
+        """
+        var c = maybeTrue() ? (() => {
+          const CLASS_DECL$0 = class {};
+          return CLASS_DECL$0;
+        })() : anotherExpr;
+        """);
     test(
         "var c = maybeTrue() ? anotherExpr : class B {}",
-        lines(
-            "var JSCompiler_temp$jscomp$0;",
-            "if (maybeTrue()) { ",
-            "  JSCompiler_temp$jscomp$0=anotherExpr; ",
-            "} else {",
-            "  const testcode$classdecl$var0 = class{};",
-            "  /** @constructor */ JSCompiler_temp$jscomp$0 = testcode$classdecl$var0",
-            "}",
-            "var c = JSCompiler_temp$jscomp$0;"));
+        """
+        var c = maybeTrue() ? anotherExpr : (() => {
+          const CLASS_DECL$0 = class {};
+          return CLASS_DECL$0;
+        })();
+        """);
   }
 
   @Test
   public void testNormalisedArrowFunction() {
     test(
         "(() => { return class A {};})();",
-        "(() => { const testcode$classdecl$var0 = class {}; return testcode$classdecl$var0;})()");
+        "(() => { const CLASS_DECL$0 = class {}; return CLASS_DECL$0;})()");
 
     test(
         "function foo(x = () => {return class A {}; }) {} use(foo());",
-        lines(
-            "function foo(", //
-            "  x = () => {",
-            "    const testcode$classdecl$var0 = class {}; ",
-            "    return testcode$classdecl$var0;",
-            "  })",
-            " {}",
-            "use(foo());"));
+        """
+        function foo(
+          x = () => {
+            const CLASS_DECL$0 = class {};
+            return CLASS_DECL$0;
+          })
+         {}
+        use(foo());
+        """);
   }
 
   // Tests that class that is a default parameter value are converted into normalized arrow
@@ -268,88 +331,69 @@ public final class Es6ExtractClassesTest extends CompilerTestCase {
   @Test
   public void testClassAsDefaultParamValue() {
     test(
-        lines("function foo(x = class A {}) {} ", "use(foo());"),
-        lines(
-            "function foo(x = ",
-            "  (() => { const testcode$classdecl$var0 = class {}; ",
-            "           return testcode$classdecl$var0;",
-            "         }",
-            "  )()) {}",
-            "use(foo());"));
-  }
-
-  @Test
-  public void classExtractedInUnnormalizedArrows() {
-    test(
-        lines(
-            "goog.module('some');", //
-            "exports.some = ((c) =>  class extends c{});"),
-        lines(
-            "/** @const */ var module$exports$some = {}; ",
-            "/** @const */ module$exports$some.some = c => {",
-            "  const testcode$classdecl$var0 = class extends c {};",
-            "  return testcode$classdecl$var0;",
-            "};"));
-  }
-
-  @Test
-  public void classExtractedInUnnormalizedArrowsNested() {
-    test(
-        lines(
-            "goog.module('some');", //
-            "exports.some = ((outer) => ((c) =>  class extends c{}));"),
-        lines(
-            "/** @const */ var module$exports$some = {}; ",
-            "/** @const */ module$exports$some.some = outer => {",
-            "  return c => {",
-            "    const testcode$classdecl$var0 = class extends c {};",
-            "    return testcode$classdecl$var0;",
-            "  };",
-            "};"));
+        """
+        function foo(x = class A {}) {}
+        use(foo());
+        """,
+        """
+        function foo(x =
+          (() => { const CLASS_DECL$0 = class {};
+                   return CLASS_DECL$0;
+                 }
+          )()) {}
+        use(foo());
+        """);
   }
 
   @Test
   public void classExtractedInNormalizedArrowNested() {
     test(
-        lines(
-            "goog.module('some');",
-            "exports.some = ((outer) => {",
-            "  ((c) => { return class extends c{}}",
-            ")});"),
-        lines(
-            "/** @const */ var module$exports$some = {}; ",
-            "/** @const */ module$exports$some.some = outer => {",
-            "c => {",
-            "  const testcode$classdecl$var0 = class extends c {};",
-            "  return testcode$classdecl$var0;",
-            "  };",
-            "};"));
+        externs(new TestExternsBuilder().addClosureExterns().build()),
+        srcs(
+            """
+            goog.module('some');
+            exports.some = ((outer) => {
+              ((c) => { return class extends c{}}
+            )});
+            """),
+        expected(
+            """
+            /** @const */ var module$exports$some = {};
+            /** @const */ module$exports$some.some = outer => {
+            c => {
+              const CLASS_DECL$0 = class extends c {};
+              return CLASS_DECL$0;
+              };
+            };
+            """));
   }
 
   @Test
   public void testCannotExtract() {
     test(
         "let x; while(x = class A{}) {use(x);}",
-        lines(
-            "let x;",
-            "while(x = (() => { const testcode$classdecl$var0 = class {}; return"
-                + " testcode$classdecl$var0;})()) ",
-            "{use(x);}"));
+"""
+let x;
+while(x = (() => { const CLASS_DECL$0 = class {}; return CLASS_DECL$0;})())
+{use(x);}
+""");
 
     test(
-        lines(
-            "/** @type {number} */ var x = 0;",
-            "function f(x, y) {}",
-            "while(f(x = 2, class Foo { bar() {} })){}"),
-        lines(
-            "var x = 0;",
-            "function f(x, y) {}",
-            "while(",
-            "  f(x = 2, ",
-            "    (() => { const testcode$classdecl$var0 = class { bar() {} };",
-            "          return testcode$classdecl$var0;",
-            "         })()",
-            ")){}"));
+        """
+        /** @type {number} */ var x = 0;
+        function f(x, y) {}
+        while(f(x = 2, class Foo { bar() {} })){}
+        """,
+        """
+        var x = 0;
+        function f(x, y) {}
+        while(
+          f(x = 2,
+            (() => { const CLASS_DECL$0 = class { bar() {} };
+                  return CLASS_DECL$0;
+                 })()
+        )){}
+        """);
   }
 
   @Test

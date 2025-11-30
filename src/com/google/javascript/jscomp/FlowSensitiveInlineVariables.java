@@ -37,7 +37,7 @@ import java.util.Iterator;
 import java.util.LinkedHashSet;
 import java.util.Map;
 import java.util.Set;
-import org.jspecify.nullness.Nullable;
+import org.jspecify.annotations.Nullable;
 
 /**
  * Inline variables when possible. Using the information from {@link MaybeReachingVariableUse} and
@@ -535,20 +535,20 @@ class FlowSensitiveInlineVariables implements CompilerPass, ScopedCallback {
             @Override
             public void visit(NodeTraversal t, Node n, Node parent) {
               switch (n.getToken()) {
-                case NAME:
+                case NAME -> {
                   if (n.getString().equals(varName) && n.hasChildren()) {
                     def = n;
                   }
                   return;
-
-                case ASSIGN:
+                }
+                case ASSIGN -> {
                   Node lhs = n.getFirstChild();
                   if (lhs.isName() && lhs.getString().equals(varName)) {
                     def = n;
                   }
                   return;
-                default:
-                  break;
+                }
+                default -> {}
               }
             }
           };
@@ -604,7 +604,9 @@ class FlowSensitiveInlineVariables implements CompilerPass, ScopedCallback {
      */
     private boolean isRhsSafeToInline(final Scope usageScope) {
       // Don't inline definitions with an R-Value that has:
-      // 1) GETPROP, GETELEM,
+      // 1) GETELEM, OPTCHAIN_GETELEM (e.g: foo?.['bar']), GETPROP, OPTCHAIN_GETPROP (e.g:
+      // foo?.bar), CLASS, ARRAYLIT,
+      // OBJECTLIT, REGEXP
       // 2) anything that creates a new object.
       // Example:
       // var x = a.b.c; j.c = 1; print(x);
@@ -613,15 +615,19 @@ class FlowSensitiveInlineVariables implements CompilerPass, ScopedCallback {
           def.getLastChild(),
           (Node input) -> {
             switch (input.getToken()) {
-              case GETELEM:
-              case GETPROP:
-              case ARRAYLIT:
-              case OBJECTLIT:
-              case REGEXP:
-              case NEW:
-                return true; // unsafe to inline.
-              default:
-                break;
+              case GETELEM,
+                  GETPROP,
+                  OPTCHAIN_GETPROP,
+                  OPTCHAIN_GETELEM,
+                  CLASS,
+                  ARRAYLIT,
+                  OBJECTLIT,
+                  REGEXP,
+                  NEW -> {
+                return true;
+                // unsafe to inline.
+              }
+              default -> {}
             }
             return false;
           },

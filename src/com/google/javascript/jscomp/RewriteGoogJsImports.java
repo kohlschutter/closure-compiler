@@ -31,7 +31,7 @@ import com.google.javascript.rhino.IR;
 import com.google.javascript.rhino.Node;
 import java.util.LinkedHashMap;
 import java.util.Map;
-import org.jspecify.nullness.Nullable;
+import org.jspecify.annotations.Nullable;
 
 /**
  * Looks for references to Closure's goog.js file and globalizes. The goog.js file is an ES6 module
@@ -192,11 +192,8 @@ public class RewriteGoogJsImports implements CompilerPass {
     @Override
     public void visit(NodeTraversal t, Node n, Node parent) {
       switch (n.getToken()) {
-        case NAME:
-          maybeRewriteBadGoogJsImportRef(t, n, parent);
-          break;
-        default:
-          break;
+        case NAME -> maybeRewriteBadGoogJsImportRef(t, n, parent);
+        default -> {}
       }
     }
   }
@@ -230,23 +227,19 @@ public class RewriteGoogJsImports implements CompilerPass {
 
     @Override
     public boolean shouldTraverse(NodeTraversal t, Node n, Node parent) {
-      switch (n.getToken()) {
-        case ROOT:
-        case SCRIPT:
-        case MODULE_BODY:
-        case EXPORT_SPECS:
-        case EXPORT_SPEC:
-          return true;
-        case EXPORT:
+      return switch (n.getToken()) {
+        case ROOT, SCRIPT, MODULE_BODY, EXPORT_SPECS, EXPORT_SPEC -> true;
+        case EXPORT -> {
           checkIfForwardingExport(t, n);
-          return true;
-        case NAME:
+          yield true;
+        }
+        case NAME -> {
           // Visit names in export specs and export defaults.
           checkIfNameFowardedExport(t, n, parent);
-          return false;
-        default:
-          return false;
-      }
+          yield false;
+        }
+        default -> false;
+      };
     }
   }
 

@@ -18,7 +18,6 @@ package com.google.javascript.jscomp.deps;
 
 import static com.google.common.base.Preconditions.checkState;
 
-import com.google.common.annotations.GwtIncompatible;
 import com.google.common.base.CharMatcher;
 import com.google.errorprone.annotations.CanIgnoreReturnValue;
 import com.google.javascript.jscomp.CheckLevel;
@@ -40,7 +39,6 @@ import java.util.regex.Pattern;
  * A parser that can extract dependency information from a .js file, including goog.require,
  * goog.provide, goog.module, import statements, and export statements.
  */
-@GwtIncompatible("java.util.regex")
 public final class JsFileRegexParser extends JsFileLineParser {
 
   private static final Logger logger = Logger.getLogger(JsFileRegexParser.class.getName());
@@ -205,14 +203,11 @@ public final class JsFileRegexParser extends JsFileLineParser {
 
     Map<String, String> loadFlags = new LinkedHashMap<>();
     switch (moduleType) {
-      case GOOG_MODULE:
-        loadFlags.put("module", "goog");
-        break;
-      case ES6_MODULE:
-        loadFlags.put("module", "es6");
-        break;
-      default:
+      case GOOG_MODULE -> loadFlags.put("module", "goog");
+      case ES6_MODULE -> loadFlags.put("module", "es6");
+      default -> {
         // Nothing to do here.
+      }
     }
 
     DependencyInfo dependencyInfo =
@@ -356,7 +351,7 @@ public final class JsFileRegexParser extends JsFileLineParser {
 
     if (!googMatcherBuffer.isEmpty()) {
       // Retry with the previous line.
-      lineHasProvidesOrRequires = applyGoogMatcher(String.join("", googMatcherBuffer, line));
+      lineHasProvidesOrRequires = applyGoogMatcher(googMatcherBuffer + line);
     }
     if (!lineHasProvidesOrRequires && lineHasProvidesOrRequiresWords) {
       // Try without the previous line.

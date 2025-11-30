@@ -18,7 +18,6 @@ package com.google.javascript.jscomp.serialization;
 
 import static com.google.common.collect.ImmutableList.toImmutableList;
 import static com.google.common.truth.Truth.assertThat;
-import static com.google.javascript.jscomp.CompilerTestCase.lines;
 import static java.util.Arrays.stream;
 
 import com.google.common.collect.ImmutableList;
@@ -56,7 +55,9 @@ public final class SerializeTypesToPointersTest {
 
     SerializeTypesToPointers serializer =
         SerializeTypesToPointers.create(
-            compiler, stringPoolBuilder, SerializationOptions.INCLUDE_DEBUG_INFO);
+            compiler,
+            stringPoolBuilder,
+            SerializationOptions.builder().setIncludeDebugInfo(true).build());
     serializer.gatherTypesOnAst(src);
 
     assertThat(serializer.getTypePointersByJstype().get(fooCtorType)).isNotNull();
@@ -78,7 +79,9 @@ public final class SerializeTypesToPointersTest {
 
     SerializeTypesToPointers serializer =
         SerializeTypesToPointers.create(
-            compiler, stringPoolBuilder, SerializationOptions.INCLUDE_DEBUG_INFO);
+            compiler,
+            stringPoolBuilder,
+            SerializationOptions.builder().setIncludeDebugInfo(true).build());
     serializer.gatherTypesOnAst(src);
 
     assertThat(serializer.getTypePointersByJstype().get(fooPrototypeType)).isNotNull();
@@ -102,7 +105,9 @@ public final class SerializeTypesToPointersTest {
 
     SerializeTypesToPointers serializer =
         SerializeTypesToPointers.create(
-            compiler, stringPoolBuilder, SerializationOptions.INCLUDE_DEBUG_INFO);
+            compiler,
+            stringPoolBuilder,
+            SerializationOptions.builder().setIncludeDebugInfo(true).build());
     serializer.gatherTypesOnAst(root);
 
     assertThat(serializer.getTypePointersByJstype().get(fooPrototypeType)).isNotNull();
@@ -121,16 +126,19 @@ public final class SerializeTypesToPointersTest {
     Node root =
         parseAndTypecheckFiles(
             "/** @typeSummary @externs */ class Foo { serializeMe() {} doNotSerializeMe() {} }",
-            lines(
-                "/** @externs */",
-                "class Bar { serializeMe() {} }",
-                "/** @type {string} */",
-                "Foo.prototype.andMe;"));
+            """
+            /** @externs */
+            class Bar { serializeMe() {} }
+            /** @type {string} */
+            Foo.prototype.andMe;
+            """);
     JSType fooPrototypeType = getGlobalType("Foo").toObjectType().getImplicitPrototype();
 
     SerializeTypesToPointers serializer =
         SerializeTypesToPointers.create(
-            compiler, stringPoolBuilder, SerializationOptions.INCLUDE_DEBUG_INFO);
+            compiler,
+            stringPoolBuilder,
+            SerializationOptions.builder().setIncludeDebugInfo(true).build());
     serializer.gatherTypesOnAst(root);
 
     assertThat(serializer.getTypePointersByJstype().get(fooPrototypeType)).isNotNull();

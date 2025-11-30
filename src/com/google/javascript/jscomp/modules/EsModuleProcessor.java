@@ -44,7 +44,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.TreeSet;
-import org.jspecify.nullness.Nullable;
+import org.jspecify.annotations.Nullable;
 
 /**
  * Collects information related to and resolves ES imports and exports. Also performs several ES
@@ -686,29 +686,18 @@ public final class EsModuleProcessor implements NodeTraversal.Callback, ModulePr
 
   @Override
   public boolean shouldTraverse(NodeTraversal t, Node n, Node parent) {
-    switch (n.getToken()) {
-      case ROOT:
-      case SCRIPT:
-      case MODULE_BODY:
-      case EXPORT:
-      case IMPORT:
-        return true;
-      default:
-        return false;
-    }
+    return switch (n.getToken()) {
+      case ROOT, SCRIPT, MODULE_BODY, EXPORT, IMPORT -> true;
+      default -> false;
+    };
   }
 
   @Override
   public void visit(NodeTraversal t, Node n, Node parent) {
     switch (n.getToken()) {
-      case EXPORT:
-        visitExport(t, n);
-        break;
-      case IMPORT:
-        visitImport(t, n);
-        break;
-      default:
-        break;
+      case EXPORT -> visitExport(t, n);
+      case IMPORT -> visitImport(t, n);
+      default -> {}
     }
   }
 

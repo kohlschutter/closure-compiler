@@ -30,7 +30,7 @@ import com.google.javascript.jscomp.testing.JSChunkGraphBuilder;
 import com.google.javascript.jscomp.testing.TestExternsBuilder;
 import com.google.javascript.rhino.Node;
 import com.google.javascript.rhino.StaticSourceFile.SourceKind;
-import org.jspecify.nullness.Nullable;
+import org.jspecify.annotations.Nullable;
 import org.junit.Before;
 import org.junit.Test;
 import org.junit.runner.RunWith;
@@ -91,12 +91,6 @@ public final class VarCheckTest extends CompilerTestCase {
         }
       }
     };
-  }
-
-  @Override
-  protected int getNumRepetitions() {
-    // Because we synthesize externs, the second pass won't emit a warning.
-    return 1;
   }
 
   @Test
@@ -319,9 +313,10 @@ public final class VarCheckTest extends CompilerTestCase {
     testSame(
         externs("asdf;"),
         srcs(
-            lines(
-                "(function() { var asdf; })()", //
-                "var /** @suppress {duplicate} */ asdf;")),
+            """
+            (function() { var asdf; })()
+            var /** @suppress {duplicate} */ asdf;
+            """),
         warning(VarCheck.NAME_REFERENCE_IN_EXTERNS_ERROR));
   }
 
@@ -362,12 +357,13 @@ public final class VarCheckTest extends CompilerTestCase {
   public void testVarReferenceInTypeSummary() {
     testSame(
         externs(
-            lines(
-                "/** @typeSummary */",
-                "var goog;",
-                "goog.addSingletonGetter;",
-                "class Foo {}",
-                "goog.addSingletonGetter(Foo);")),
+            """
+            /** @typeSummary */
+            var goog;
+            goog.addSingletonGetter;
+            class Foo {}
+            goog.addSingletonGetter(Foo);
+            """),
         srcs("Foo.getInstance();"));
   }
 
@@ -390,9 +386,10 @@ public final class VarCheckTest extends CompilerTestCase {
     testSame(externs("var Foo; var ns = {}; /** @const */ ns.FooAlias = Foo;"), srcs(""));
     testSame(
         externs(
-            lines(
-                "var ns = {}; /** @constructor */ ns.Foo = function() {};",
-                "var ns2 = {}; /** @const */ ns2.Bar = ns.Foo;")),
+            """
+            var ns = {}; /** @constructor */ ns.Foo = function() {};
+            var ns2 = {}; /** @const */ ns2.Bar = ns.Foo;
+            """),
         srcs(""));
   }
 
@@ -525,7 +522,13 @@ public final class VarCheckTest extends CompilerTestCase {
 
     // Arrow function nested
     testError(
-        lines("function FUNC() {", "  {", "    () => { var b = a; }", "  }", "}"),
+        """
+        function FUNC() {
+          {
+            () => { var b = a; }
+          }
+        }
+        """,
         VarCheck.UNDEFINED_VAR_ERROR);
   }
 
@@ -778,9 +781,11 @@ public final class VarCheckTest extends CompilerTestCase {
   @Test
   public void testRedeclaration4() {
     String js =
-        " /** @fileoverview @suppress {duplicate} */\n"
-            + " /** @type {string} */ var a;\n"
-            + " var a; ";
+        """
+        /** @fileoverview @suppress {duplicate} */
+        /** @type {string} */ var a;
+        var a;\s
+        """;
     testSame(js);
   }
 
@@ -808,31 +813,33 @@ public final class VarCheckTest extends CompilerTestCase {
   @Test
   public void testDuplicateBlockScopedDeclarationInSwitch() {
     testError(
-        lines(
-            "function f(x) {",
-            "  switch (x) {",
-            "    case 'a':",
-            "      let z = 123;",
-            "      break;",
-            "    case 'b':",
-            "      let z = 234;",
-            "      break;",
-            "  }",
-            "}"),
+        """
+        function f(x) {
+          switch (x) {
+            case 'a':
+              let z = 123;
+              break;
+            case 'b':
+              let z = 234;
+              break;
+          }
+        }
+        """,
         BLOCK_SCOPED_DECL_MULTIPLY_DECLARED_ERROR);
 
     testError(
-        lines(
-            "function f(x) {",
-            "  switch (x) {",
-            "    case 'a':",
-            "      class C {}",
-            "      break;",
-            "    case 'b':",
-            "      class C {}",
-            "      break;",
-            "  }",
-            "}"),
+        """
+        function f(x) {
+          switch (x) {
+            case 'a':
+              class C {}
+              break;
+            case 'b':
+              class C {}
+              break;
+          }
+        }
+        """,
         BLOCK_SCOPED_DECL_MULTIPLY_DECLARED_ERROR);
   }
 
@@ -1034,13 +1041,14 @@ public final class VarCheckTest extends CompilerTestCase {
     testSame(
         srcs(
             TestExternsBuilder.getClosureExternsAsSource(),
-            lines(
-                "goog.loadModule(function(exports) {", //
-                "  goog.module('foo.A');",
-                "  goog.module.declareLegacyNamespace();",
-                "  exports = class {};",
-                "  return exports;",
-                "});"),
+            """
+            goog.loadModule(function(exports) {
+              goog.module('foo.A');
+              goog.module.declareLegacyNamespace();
+              exports = class {};
+              return exports;
+            });
+            """,
             "new foo.A();"));
   }
 
@@ -1049,12 +1057,13 @@ public final class VarCheckTest extends CompilerTestCase {
     testError(
         srcs(
             TestExternsBuilder.getClosureExternsAsSource(),
-            lines(
-                "goog.loadModule(function(exports) {", //
-                "  goog.module('foo.A');",
-                "  exports = class {};",
-                "  return exports;",
-                "});"),
+            """
+            goog.loadModule(function(exports) {
+              goog.module('foo.A');
+              exports = class {};
+              return exports;
+            });
+            """,
             "new foo.A();"),
         error(UNDEFINED_VAR_ERROR));
   }
@@ -1105,9 +1114,9 @@ public final class VarCheckTest extends CompilerTestCase {
     JSChunk strongChunk = new JSChunk(JSChunk.STRONG_CHUNK_NAME);
     weakChunk.addDependency(strongChunk);
 
-    weakChunk.add(SourceFile.fromCode("weak.js", lines("var weakVar = 0;"), SourceKind.WEAK));
+    weakChunk.add(SourceFile.fromCode("weak.js", "var weakVar = 0;", SourceKind.WEAK));
 
-    strongChunk.add(SourceFile.fromCode("strong.js", lines("weakVar();"), SourceKind.STRONG));
+    strongChunk.add(SourceFile.fromCode("strong.js", "weakVar();", SourceKind.STRONG));
 
     test(
         srcs(
@@ -1124,9 +1133,10 @@ public final class VarCheckTest extends CompilerTestCase {
     weakChunk.add(
         SourceFile.fromCode(
             "weak.js",
-            lines(
-                "var weakVar = 0;", //
-                "weakVar();"),
+            """
+            var weakVar = 0;
+            weakVar();
+            """,
             SourceKind.WEAK));
 
     testSame(srcs(weakChunk));
@@ -1141,12 +1151,10 @@ public final class VarCheckTest extends CompilerTestCase {
     weakChunk.add(
         SourceFile.fromCode(
             "weak.js",
-            lines(
-                TestExternsBuilder.getClosureExternsAsSource(), //
-                "goog.provide('foo.bar');"),
+            TestExternsBuilder.getClosureExternsAsSource() + "goog.provide('foo.bar');",
             SourceKind.WEAK));
 
-    strongChunk.add(SourceFile.fromCode("strong.js", lines("foo();"), SourceKind.STRONG));
+    strongChunk.add(SourceFile.fromCode("strong.js", "foo();", SourceKind.STRONG));
 
     test(
         srcs(
@@ -1165,14 +1173,17 @@ public final class VarCheckTest extends CompilerTestCase {
     weakChunk.add(
         SourceFile.fromCode(
             "weak.js",
-            lines(
-                TestExternsBuilder.getClosureExternsAsSource(), //
-                "goog.provide('foo.bar');"),
+            TestExternsBuilder.getClosureExternsAsSource() + "goog.provide('foo.bar');",
             SourceKind.WEAK));
 
     strongChunk.add(
         SourceFile.fromCode(
-            "strong.js", lines("/** @suppress {undefinedVars} */", "foo();"), SourceKind.STRONG));
+            "strong.js",
+            """
+            /** @suppress {undefinedVars} */
+            foo();
+            """,
+            SourceKind.STRONG));
 
     testExternChanges(
         externs(""), srcs(strongChunk, weakChunk), expected("var foo;" + VAR_CHECK_EXTERNS));
@@ -1187,12 +1198,11 @@ public final class VarCheckTest extends CompilerTestCase {
     weakChunk.add(
         SourceFile.fromCode(
             "weak.js",
-            lines(
-                TestExternsBuilder.getClosureExternsAsSource(), //
-                "goog.module('foo.bar'); goog.module.declareLegacyNamespace();"),
+            TestExternsBuilder.getClosureExternsAsSource()
+                + "goog.module('foo.bar'); goog.module.declareLegacyNamespace();",
             SourceKind.WEAK));
 
-    strongChunk.add(SourceFile.fromCode("strong.js", lines("foo();"), SourceKind.STRONG));
+    strongChunk.add(SourceFile.fromCode("strong.js", "foo();", SourceKind.STRONG));
 
     test(srcs(strongChunk, weakChunk), error(VarCheck.UNDEFINED_VAR_ERROR));
   }
@@ -1203,15 +1213,14 @@ public final class VarCheckTest extends CompilerTestCase {
     JSChunk strongChunk = new JSChunk(JSChunk.STRONG_CHUNK_NAME);
     weakChunk.addDependency(strongChunk);
 
-    weakChunk.add(
-        SourceFile.fromCode("weak.js", lines("goog.provide('foo.bar');"), SourceKind.WEAK));
+    weakChunk.add(SourceFile.fromCode("weak.js", "goog.provide('foo.bar');", SourceKind.WEAK));
 
     strongChunk.add(
         SourceFile.fromCode(
             "strong0.js",
-            lines(TestExternsBuilder.getClosureExternsAsSource(), "goog.provide('foo.qux');"),
+            TestExternsBuilder.getClosureExternsAsSource() + "goog.provide('foo.qux');",
             SourceKind.STRONG));
-    strongChunk.add(SourceFile.fromCode("strong1.js", lines("foo();"), SourceKind.STRONG));
+    strongChunk.add(SourceFile.fromCode("strong1.js", "foo();", SourceKind.STRONG));
 
     testSame(
         srcs(
