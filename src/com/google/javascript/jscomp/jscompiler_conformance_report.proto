@@ -6,8 +6,9 @@ import "third_party/java_src/jscomp/java/com/google/javascript/jscomp/conformanc
 
 option features.utf8_validation = VERIFY;
 option java_package = "com.google.javascript.jscomp";
+option java_outer_classname = "JsCompilerConformanceReportOuter";
 option java_multiple_files = true;
-option go_api_flag = "OPEN_TO_OPAQUE_HYBRID";  // needed for http://go/go-api-flag
+//option go_api_flag = "OPEN_TO_OPAQUE_HYBRID";  // needed for http://go/go-api-flag
 
 /**
  * A conformance report output by JSCompiler. A report of this format is
