@@ -1118,6 +1118,14 @@ class TypeValidator implements Serializable {
           }
         }
       }
+
+      if (found instanceof FunctionType && required instanceof FunctionType) {
+        // the found function type is more specific than the required type -- not a mismatch
+        if ("function(...?): undefined".equals(required.toString())) {
+          return;
+        }
+      }
+
       registerMismatchAndReport(n, TYPE_MISMATCH_WARNING, msg, found, required, missing, mismatch);
     }
   }
